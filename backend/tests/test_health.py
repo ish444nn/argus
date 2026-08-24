@@ -1,0 +1,98 @@
+"""Health endpoint tests.
+
+The unit tests stub the dependencies so they run anywhere. The integration test
+hits the real Compose stack and is skipped when it is not up.
+"""
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import text
+
+from argus.api.main import app
+from argus.db.session import get_session
+
+
+class _FakeSession:
+    """Answers the two queries /health makes."""
+
+    def __init__(self, *, vector_installed: bool = True, fail: bool = False):
+        self.vector_installed = vector_installed
+        self.fail = fail
+
+    def execute(self, statement):
+        if self.fail:
+            raise RuntimeError("connection refused")
+        if "pg_extension" in str(statement):
+            return _FakeResult("0.8.6" if self.vector_installed else None)
+        return _FakeResult(1)
+
+
+class _FakeResult:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+
+@pytest.fixture
+def override_session():
+    def _apply(session):
+        app.dependency_overrides[get_session] = lambda: session
+
+    yield _apply
+    app.dependency_overrides.clear()
+
+
+def test_health_reports_every_dependency(client, override_session):
+    override_session(_FakeSession())
+    body = client.get("/health").json()
+
+    assert set(body["dependencies"]) == {"api", "postgres", "pgvector", "redis"}
+    assert body["dependencies"]["postgres"]["status"] == "ok"
+    assert body["dependencies"]["pgvector"]["status"] == "ok"
+    assert body["environment"] == "test"
+
+
+def test_missing_pgvector_extension_is_reported_distinctly_from_a_healthy_postgres(
+    client, override_session
+):
+    override_session(_FakeSession(vector_installed=False))
+    body = client.get("/health").json()
+
+    assert body["status"] == "degraded"
+    assert body["dependencies"]["postgres"]["status"] == "ok"
+    assert body["dependencies"]["pgvector"]["status"] == "error"
+
+
+def test_a_broken_database_does_not_produce_two_identical_errors(client, override_session):
+    override_session(_FakeSession(fail=True))
+    body = client.get("/health").json()
+
+    assert body["status"] == "degraded"
+    assert body["dependencies"]["postgres"]["status"] == "error"
+    assert body["dependencies"]["pgvector"]["detail"] == "postgres unreachable"
+
+
+def test_health_returns_200_even_when_degraded(client, override_session):
+    """The dashboard renders the breakdown, so the body must always arrive."""
+    override_session(_FakeSession(fail=True))
+    assert client.get("/health").status_code == 200
+
+
+@pytest.mark.integration
+def test_health_against_the_real_stack():
+    from argus.db.session import SessionLocal
+
+    try:
+        with SessionLocal() as session:
+            session.execute(text("SELECT 1"))
+    except Exception as exc:  # pragma: no cover - depends on local environment
+        pytest.skip(f"compose stack not reachable: {exc}")
+
+    with TestClient(app) as real_client:
+        body = real_client.get("/health").json()
+
+    assert body["status"] == "ok", body["dependencies"]
+    assert body["dependencies"]["pgvector"]["status"] == "ok"
+    assert body["dependencies"]["redis"]["status"] == "ok"

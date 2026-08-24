@@ -216,3 +216,68 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ==========================================================================
+# Argus project additions
+# (the section above is the standard GitHub Python template; everything the
+# project needs beyond Python lives here)
+# ==========================================================================
+
+# --- Node / frontend -------------------------------------------------------
+node_modules/
+frontend/dist/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+.oxlint_cache/
+
+# --- Datasets --------------------------------------------------------------
+# The Elliptic dataset is downloaded by a script, never committed.
+# The curated typology corpus under data/typologies/ IS committed (see below).
+data/*
+!data/.gitkeep
+!data/typologies/
+*.csv
+*.parquet
+*.feather
+
+# --- Model artifacts / experiment tracking ---------------------------------
+models/*
+!models/.gitkeep
+# Re-including a file needs its parent directory re-included first.
+!models/*/
+!models/*/metadata.json
+mlruns/
+mlartifacts/
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.joblib
+*.ubj
+*.bst
+
+# --- Local runtime data ----------------------------------------------------
+# Postgres lives in a named Docker volume, but guard against bind mounts too.
+docker/data/
+pgdata/
+*.sqlite
+*.sqlite3
+*.db
+logs/
+docker-compose.override.yml
+
+# --- OS / editor junk ------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/
+!.vscode/extensions.json
+
+# --- Agent / tooling workspace ---------------------------------------------
+.remember/
+.playwright-mcp/

@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: oklch(0.16 0.01 260);
+  --color-panel: oklch(0.21 0.012 260);
+  --color-edge: oklch(0.31 0.014 260);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}

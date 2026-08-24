@@ -1,0 +1,73 @@
+[project]
+name = "argus"
+version = "0.1.0"
+description = "Graph-based transaction risk assessment and evidence-grounded investigation"
+requires-python = ">=3.12,<3.13"
+
+# Core: everything the API needs. Deliberately excludes torch / xgboost so the
+# API image stays light (see CLAUDE.md -> Docker). Celery + redis are here
+# because the API dispatches tasks even though it never executes them.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3.6",
+    "alembic>=1.14",
+    "celery>=5.4",
+    "redis>=5.2",
+]
+
+[project.optional-dependencies]
+# Worker-only. Installed in the `worker` Docker target and for local training.
+gnn = [
+    "torch>=2.5",
+    "torch-geometric>=2.6",
+    "xgboost>=2.1",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "pytest>=8.3",
+    "httpx>=0.28",
+]
+
+# CPU-only PyTorch. Without this uv resolves the default CUDA build, which is
+# several GB and useless on a machine with no NVIDIA GPU.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["argus"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+
+[tool.ruff.lint.per-file-ignores]
+"alembic/versions/*" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "integration: requires a live Postgres and Redis (docker compose up)",
+]
