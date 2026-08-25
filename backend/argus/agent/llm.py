@@ -79,7 +79,14 @@ class GeminiProvider:
                 # Low but not zero: the task is summarising supplied facts, and
                 # nothing is gained from creative phrasing.
                 temperature=0.2,
-                max_output_tokens=2048,
+                # Generous, because Gemini 3.x reasons before answering and
+                # those tokens come out of the same budget. A trivial prompt
+                # already spent ~790 on reasoning; at 2048 the real
+                # investigation prompt ran out mid-string and returned
+                # truncated JSON. Thinking cannot be switched off on the flash
+                # models -- `thinking_budget=0` is rejected -- so the budget
+                # has to be large enough for both.
+                max_output_tokens=8192,
             ),
         )
         parsed = response.parsed

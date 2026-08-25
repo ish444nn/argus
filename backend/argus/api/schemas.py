@@ -162,3 +162,34 @@ class InvestigationDispatched(BaseModel):
     case_id: int
     provider: str
     status_url: str
+
+
+class NeighbourOut(BaseModel):
+    tx_id: int
+    direction: str
+    timestep: int
+    label: str
+    in_degree: int
+    out_degree: int
+    risk_score: float | None
+    flagged: bool
+
+
+class NeighbourhoodGraph(BaseModel):
+    tx_id: int
+    total_degree: int
+    truncated: bool
+    neighbours: list[NeighbourOut]
+
+
+class ReviewIn(BaseModel):
+    decision: str
+    note: str | None = None
+
+
+class ReviewOut(BaseModel):
+    review_id: int
+    decision: str
+    note: str | None
+    analyst: str
+    created_at: str

@@ -55,6 +55,44 @@ def cmd_retrieve(args: argparse.Namespace) -> None:
         print("  (nothing retrieved)")
 
 
+def cmd_investigate_top(args: argparse.Namespace) -> None:
+    """Investigate the highest-scoring cases.
+
+    Mostly for rebuilding a demo state: re-ingesting the corpus renumbers it
+    and clears citations that no longer resolve, so the cases shown in the UI
+    need investigating again afterwards. Running the test suite does exactly
+    that, since its fixtures re-ingest.
+    """
+    from sqlalchemy import text
+
+    from argus.db.session import SessionLocal
+    from argus.services import investigation
+
+    with SessionLocal() as session:
+        ids = (
+            session.execute(
+                text("SELECT id FROM case_reports ORDER BY risk_score DESC, id LIMIT :n"),
+                {"n": args.count},
+            )
+            .scalars()
+            .all()
+        )
+
+    print(f"provider: {get_settings().llm_provider}; investigating {len(ids)} case(s)")
+    for case_id in ids:
+        with SessionLocal() as session:
+            try:
+                result = investigation.investigate(session, case_id)
+                print(
+                    f"  case {case_id}: {result['typology_assessment']} "
+                    f"conf={result['confidence']} tier={result['queue_tier']} "
+                    f"sources={len(result['retrieved_sources'])} "
+                    f"fallback={result['used_fallback']}"
+                )
+            except Exception as exc:
+                print(f"  case {case_id}: FAILED {type(exc).__name__}: {exc}")
+
+
 def cmd_investigate(args: argparse.Namespace) -> None:
     from argus.agent.graph import investigate
     from argus.db.session import SessionLocal
@@ -105,6 +143,10 @@ def main(argv: list[str] | None = None) -> None:
     investigate_parser = sub.add_parser("investigate", help="investigate one case")
     investigate_parser.add_argument("case_id", type=int)
     investigate_parser.set_defaults(func=cmd_investigate)
+
+    top_parser = sub.add_parser("investigate-top", help="investigate the highest-scoring cases")
+    top_parser.add_argument("--count", type=int, default=8)
+    top_parser.set_defaults(func=cmd_investigate_top)
 
     args = parser.parse_args(argv)
     args.func(args)

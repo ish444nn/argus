@@ -1,109 +1,130 @@
 import type { EvidenceItem } from "../api/client";
+import { Meter, Note, ProvLabel } from "./ui";
 
 /**
- * Evidence display.
+ * Observed evidence.
  *
- * Every item shows what it rests on, not just what it claims: a similarity or
- * neighbour item names the transaction it came from, and each shows its
- * contribution to the deterministic confidence score. That traceability is the
- * point of the whole evidence model, so it is on the face of the card rather
- * than hidden behind a details toggle.
+ * Grouped by kind rather than listed flat, because the groups answer different
+ * questions and an analyst reads them in a different order: what does this
+ * resemble, what shape is it, who is it connected to, what does the other
+ * model think.
+ *
+ * Every item shows the transaction or rule it came from and its contribution
+ * to confidence. That traceability is the point of the evidence model, so it
+ * sits on the face of each row rather than behind a disclosure.
  */
 
-const KIND_LABELS: Record<string, string> = {
-  heuristic: "Structural pattern",
-  structural_similarity: "Structural similarity",
-  graph_model_corroboration: "Graph model second opinion",
-  flagged_neighbour: "Flagged neighbour",
-  confirmed_neighbour: "Confirmed neighbour",
-  typology_reference: "Typology reference",
-};
+const GROUPS: { kinds: string[]; title: string; blurb: string }[] = [
+  {
+    kinds: ["structural_similarity"],
+    title: "Historical similarity",
+    blurb:
+      "Transactions from the training period whose network position the graph model represents the same way.",
+  },
+  {
+    kinds: ["heuristic"],
+    title: "Structural patterns",
+    blurb:
+      "Network shapes computed from the graph. Thresholds come from the whole dataset's degree distribution.",
+  },
+  {
+    kinds: ["flagged_neighbour", "confirmed_neighbour"],
+    title: "Counterparties",
+    blurb:
+      "Connected transactions the system already distrusts, and why it distrusts them.",
+  },
+  {
+    kinds: ["graph_model_corroboration"],
+    title: "Second opinion",
+    blurb: "The neighbourhood-aware model's independent score. It does not decide the queue.",
+  },
+];
 
-const KIND_STYLES: Record<string, string> = {
-  heuristic: "bg-amber-500/15 text-amber-300 ring-amber-500/30",
-  structural_similarity: "bg-violet-500/15 text-violet-300 ring-violet-500/30",
-  graph_model_corroboration: "bg-sky-500/15 text-sky-300 ring-sky-500/30",
-  flagged_neighbour: "bg-rose-500/15 text-rose-300 ring-rose-500/30",
-  confirmed_neighbour: "bg-rose-500/20 text-rose-200 ring-rose-500/40",
-  typology_reference: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30",
-};
-
-function StrengthBar({ value }: { value: number }) {
-  return (
-    <div className="h-1 w-16 overflow-hidden rounded-full bg-white/10">
-      <div
-        className="h-full rounded-full bg-zinc-300"
-        style={{ width: `${Math.round(value * 100)}%` }}
-      />
-    </div>
-  );
-}
-
-export function EvidenceCard({ item }: { item: EvidenceItem }) {
+function Row({ item }: { item: EvidenceItem }) {
   const heuristic =
     item.details && typeof item.details.heuristic === "string"
       ? (item.details.heuristic as string)
       : null;
+  const baseRate =
+    item.details && typeof item.details.base_rate === "number"
+      ? (item.details.base_rate as number)
+      : null;
 
   return (
-    <li className="rounded-lg border border-white/10 bg-zinc-900/50 p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={`rounded px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${
-            KIND_STYLES[item.kind] ?? "bg-white/10 text-zinc-300 ring-white/20"
-          }`}
-        >
-          {KIND_LABELS[item.kind] ?? item.kind}
-        </span>
-        {heuristic && (
-          <span className="font-mono text-xs text-zinc-500">{heuristic}</span>
-        )}
-        <span className="ml-auto flex items-center gap-2 font-mono text-xs text-zinc-500">
-          <StrengthBar value={item.strength} />
-          {item.strength.toFixed(2)} &times; {item.weight.toFixed(2)} ={" "}
-          <span className="text-zinc-300">{item.contribution.toFixed(3)}</span>
-        </span>
+    <li className="border-t border-[var(--line)] py-3 first:border-t-0 first:pt-0">
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-[var(--text)]">{item.summary}</p>
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--text-3)]">
+            {item.neighbour_tx_id !== null && (
+              <span className="num">
+                from tx {item.neighbour_tx_id}
+                {item.neighbour_timestep !== null && ` · batch ${item.neighbour_timestep}`}
+              </span>
+            )}
+            {heuristic && <span className="num">{heuristic}</span>}
+            {baseRate !== null && (
+              <span>fires on {(baseRate * 100).toFixed(1)}% of all transactions</span>
+            )}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <Meter value={item.strength} width={56} />
+          <p className="num mt-1 text-[11px] text-[var(--text-3)]">
+            {item.strength.toFixed(2)} × {item.weight.toFixed(2)}
+          </p>
+        </div>
       </div>
-
-      <p className="mt-2 text-sm text-zinc-200">{item.summary}</p>
-
-      {item.neighbour_tx_id !== null && (
-        <p className="mt-2 font-mono text-xs text-zinc-500">
-          source: transaction {item.neighbour_tx_id}
-          {item.neighbour_timestep !== null && ` · time step ${item.neighbour_timestep}`}
-        </p>
-      )}
     </li>
   );
 }
 
 export function EvidenceList({ items }: { items: EvidenceItem[] }) {
-  if (!items.length) {
+  const observed = items.filter((item) => item.kind !== "typology_reference");
+
+  if (!observed.length) {
     return (
-      <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-zinc-500">
-        No supporting evidence was found for this transaction. The structural
-        heuristics need degrees this transaction does not have, and no
-        historical match cleared the similarity threshold.
-      </p>
+      <Note title="No supporting evidence">
+        Nothing corroborated this transaction beyond its score. The structural
+        heuristics need degrees it does not have, and no historical match cleared
+        the similarity threshold.
+      </Note>
     );
   }
 
-  const kinds = new Set(items.map((item) => item.kind)).size;
+  const groups = GROUPS.map((group) => ({
+    ...group,
+    items: observed.filter((item) => group.kinds.includes(item.kind)),
+  })).filter((group) => group.items.length);
+
+  const kinds = new Set(observed.map((item) => item.kind)).size;
 
   return (
-    <>
-      <p className="mb-3 text-xs text-zinc-500">
-        {items.length} item{items.length === 1 ? "" : "s"} across {kinds} kind
-        {kinds === 1 ? "" : "s"}. Confidence is computed from these
-        deterministically — never self-reported by a language model. Items of the
-        same kind combine with diminishing returns, so corroboration across kinds
-        counts for more than repetition within one.
+    <div className="space-y-5">
+      <ProvLabel
+        origin="measured"
+        detail={`${observed.length} item${observed.length === 1 ? "" : "s"} across ${kinds} kind${kinds === 1 ? "" : "s"}`}
+      />
+
+      {groups.map((group) => (
+        <section key={group.title}>
+          <h3 className="text-[var(--text)]">{group.title}</h3>
+          <p className="mb-2 mt-0.5 max-w-[74ch] text-[11px] text-[var(--text-3)]">
+            {group.blurb}
+          </p>
+          <ul className="border-t border-[var(--line)] pt-3">
+            {group.items.map((item) => (
+              <Row key={item.id} item={item} />
+            ))}
+          </ul>
+        </section>
+      ))}
+
+      <p className="border-t border-[var(--line)] pt-3 text-[11px] text-[var(--text-3)]">
+        Confidence combines these deterministically. Items of one kind combine with
+        diminishing returns and can never exceed that kind&rsquo;s weight, so
+        corroboration across kinds counts for more than repetition within one.
       </p>
-      <ul className="space-y-2">
-        {items.map((item) => (
-          <EvidenceCard key={item.id} item={item} />
-        ))}
-      </ul>
-    </>
+    </div>
   );
 }

@@ -1,13 +1,463 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   Argus — visual system
+
+   An instrument, not a dashboard. The use scene is an analyst on a large
+   monitor for a whole shift, reading dense tabular evidence and deciding
+   whether to escalate. So: cool dark slate that does not glare after an hour,
+   near-zero radius, no shadows, structure carried by 1px rules and surface
+   steps rather than floating cards.
+
+   The organising idea is PROVENANCE. Argus holds three kinds of knowledge and
+   the entire product depends on never confusing them:
+
+       measured   Argus counted it              solid rail   steel
+       model      a model inferred or wrote it  dashed rail  violet
+       cited      quoted from a published source double rail green
+
+   Every information block wears its provenance on its left edge, with a mono
+   eyebrow naming it. The rail treatment differs by line style as well as
+   colour, so the distinction survives greyscale and colour-blindness.
+
+   Colour appears only where it carries meaning. There is no decorative hue
+   anywhere in this file.
+   ========================================================================== */
+
 @theme {
-  --color-surface: oklch(0.16 0.01 260);
-  --color-panel: oklch(0.21 0.012 260);
-  --color-edge: oklch(0.31 0.014 260);
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Menlo, monospace;
+  --font-cond: "IBM Plex Sans Condensed", "IBM Plex Sans", sans-serif;
+}
+
+:root {
+  /* Surfaces — cool slate, four steps, no shadows anywhere */
+  --bg: #0e1116;
+  --surface: #151a22;
+  --surface-2: #1b2130;
+  --surface-3: #222a3a;
+  --line: #232b38;
+  --line-2: #313c4e;
+
+  /* Text */
+  --text: #dfe5ee;
+  --text-2: #97a1b2;
+  --text-3: #6b7688;
+
+  /* Provenance — the three kinds of knowledge */
+  --measured: #4f9ecf;
+  --model: #9b8cd8;
+  --cited: #57a88b;
+
+  /* Risk ladder — four steps, read alongside the numeral and the glyph */
+  --risk-4: #d0705c;
+  --risk-3: #c99a3e;
+  --risk-2: #7f8aa0;
+  --risk-1: #5b6577;
+
+  /* Decisions */
+  --confirmed: #d0705c;
+  --dismissed: #7f8aa0;
+  --more: #c99a3e;
+
+  --ok: #57a88b;
+  --warn: #c99a3e;
+  --bad: #d0705c;
+
+  /* Type scale — tight, because density is the point */
+  --t-2xs: 0.6875rem;  /* 11px  eyebrows, table heads */
+  --t-xs: 0.75rem;     /* 12px  meta */
+  --t-sm: 0.8125rem;   /* 13px  table body, UI default */
+  --t-base: 0.875rem;  /* 14px  prose */
+  --t-md: 1rem;
+  --t-lg: 1.25rem;
+  --t-xl: 1.625rem;
+  --t-2xl: 2rem;
+
+  /* Space — 4px base */
+  --s1: 0.25rem;
+  --s2: 0.5rem;
+  --s3: 0.75rem;
+  --s4: 1rem;
+  --s5: 1.5rem;
+  --s6: 2rem;
+  --s7: 3rem;
+
+  --r: 2px;
+  --rail: 3px;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 html,
 body,
 #root {
   height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--t-sm);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--measured) 35%, transparent);
+}
+
+/* Focus is never removed, only restyled. Analysts use keyboards. */
+:focus-visible {
+  outline: 2px solid var(--measured);
+  outline-offset: 1px;
+  border-radius: var(--r);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- Type roles ----------------------------------------------------------- */
+
+.eyebrow {
+  font-family: var(--font-cond);
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* --- Panels --------------------------------------------------------------- */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-body {
+  padding: var(--s4);
+}
+
+/* --- The provenance rail: the signature element --------------------------- */
+
+.prov {
+  position: relative;
+  padding-left: var(--s4);
+  border-left: var(--rail) solid var(--line-2);
+}
+
+/* Measured — solid. Argus counted this. */
+.prov-measured {
+  border-left-color: var(--measured);
+}
+
+/* Model — dashed, because the reading is inferred rather than observed. */
+.prov-model {
+  border-left-style: dashed;
+  border-left-color: var(--model);
+}
+
+/* Cited — a double rule, the typographic mark of a quotation. */
+.prov-cited {
+  border-left-style: double;
+  border-left-width: 4px;
+  border-left-color: var(--cited);
+}
+
+.prov-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.prov-label::before {
+  content: "";
+  width: 14px;
+  height: 0;
+  border-top: 2px solid currentColor;
+}
+
+.prov-label-model::before {
+  border-top-style: dashed;
+}
+
+.prov-label-cited::before {
+  border-top-style: double;
+  border-top-width: 4px;
+}
+
+/* --- Tables --------------------------------------------------------------- */
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+
+.tbl thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  padding: var(--s2) var(--s3);
+  text-align: left;
+  font-family: var(--font-cond);
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--line-2);
+  white-space: nowrap;
+}
+
+.tbl tbody td {
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.tbl tbody tr {
+  cursor: pointer;
+  transition: background 90ms linear;
+}
+
+.tbl tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.tbl tbody tr[aria-selected="true"] {
+  background: var(--surface-3);
+}
+
+/* A left marker on the selected row, so selection is not colour-only. */
+.tbl tbody tr[aria-selected="true"] td:first-child {
+  box-shadow: inset var(--rail) 0 0 var(--measured);
+}
+
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sortable:hover {
+  color: var(--text-2);
+}
+
+/* --- Controls ------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  padding: 6px 12px;
+  font-family: var(--font-cond);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: background 90ms linear, border-color 90ms linear;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: var(--text-3);
+}
+
+.btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: color-mix(in oklab, var(--measured) 22%, var(--surface-2));
+  border-color: color-mix(in oklab, var(--measured) 55%, var(--line-2));
+  color: #eaf3fa;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--measured) 32%, var(--surface-2));
+  border-color: var(--measured);
+}
+
+.input,
+.select {
+  padding: 5px 8px;
+  font-family: inherit;
+  font-size: var(--t-xs);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+}
+
+.select {
+  cursor: pointer;
+}
+
+.input::placeholder {
+  color: var(--text-3);
+}
+
+/* --- Badges --------------------------------------------------------------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  font-family: var(--font-cond);
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid;
+  border-radius: var(--r);
+  white-space: nowrap;
+}
+
+/* --- The risk ladder -----------------------------------------------------
+   Four stepped bars. Band is legible from the filled-step count alone, so
+   the reading survives greyscale; colour only reinforces it.
+   ------------------------------------------------------------------------ */
+
+.ladder {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.ladder span {
+  width: 3px;
+  background: var(--line-2);
+  border-radius: 1px;
+}
+
+.ladder span:nth-child(1) { height: 4px; }
+.ladder span:nth-child(2) { height: 6px; }
+.ladder span:nth-child(3) { height: 9px; }
+.ladder span:nth-child(4) { height: 12px; }
+
+/* --- Meters --------------------------------------------------------------- */
+
+.meter {
+  height: 4px;
+  background: var(--surface-3);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.meter > i {
+  display: block;
+  height: 100%;
+  background: var(--measured);
+}
+
+/* --- Loading -------------------------------------------------------------- */
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    var(--surface-3) 50%,
+    var(--surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--r);
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.pulse-dot {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* --- Scrollbars: thin, so tables keep their space ------------------------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border: 3px solid var(--bg);
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* --- Screen-reader only --------------------------------------------------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

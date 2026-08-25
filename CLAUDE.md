@@ -1,9 +1,9 @@
 # CLAUDE.md — Argus working notes
 
 Source of truth for requirements: `docs/prd.md`. This file is *how* we build it.
-Status: **Phase 4 complete** — RAG corpus, LangGraph investigation, Gemini
-provider, citation validation, deterministic confidence, investigation UI.
-Next: Phase 5 (auth, analyst decisions, polished dashboard).
+Status: **Phase 5 complete** — analyst product: app shell, operations overview,
+risk queue, case dossier, investigation panel, review workflow. Real Gemini
+verified end to end. Outstanding vs the PRD: analyst sign-in.
 
 ## What this project is
 
@@ -49,11 +49,11 @@ must be justified by a concrete PRD requirement.
 | Primary scorer | XGBoost (all 166 features) |
 | Graph model | GraphSAGE (PyTorch + PyG) -> 64-d node embeddings + secondary graph score |
 | Experiments | MLflow, local file store (`mlruns/`), not a runtime dependency |
-| LLM | Gemini `gemini-2.5-flash` via `google-genai`, structured output |
+| LLM | Gemini `gemini-3.6-flash` via `google-genai`, structured output |
 | Embeddings | Gemini `gemini-embedding-001`, 768-d |
 | Vector store | pgvector — TWO spaces: typology text (768) + tx structure (64) |
 | Agent | LangGraph, deterministic nodes, ONE LLM call at the end |
-| Frontend | Vite + React + TS + Tailwind + TanStack Query, types from OpenAPI |
+| Frontend | Vite + React + TS + Tailwind + TanStack Query + react-router |
 | Deploy | Render (web + static) + Supabase Postgres; worker/Redis local only |
 
 ## ML/DL split of responsibility (LOCKED — option B)
@@ -268,6 +268,29 @@ MEASURED:
   still has no torch/xgboost/numpy/langgraph.
 - Only `typology_reference` evidence is replaced on re-investigation; Phase 3
   evidence is never touched (test compares before/after).
+
+## Phase 5 findings
+
+- **`gemini-2.5-flash` is retired for new API keys.** The API returns 404 naming
+  `gemini-3.6-flash`. Default updated in `core/config.py` and `.env.example`.
+- **Gemini 3.x flash reasons before answering and the thinking tokens come out of
+  `max_output_tokens`.** At 2048 the real investigation prompt returned truncated
+  JSON; a trivial prompt already spent ~790 on reasoning. Now 8192.
+  `thinking_budget=0` is REJECTED by 3.x flash -- you cannot switch it off.
+- **The embedding-space guard earns its keep.** Running the test suite leaves the
+  corpus embedded by the stub (conftest forces LLM_PROVIDER=stub); the next real
+  run refuses rather than returning nonsense. Fix: re-ingest, then
+  `argus.agent.cli investigate-top` to rebuild the demo state.
+- **Running the test suite clears investigation citations** (agent fixtures
+  re-ingest the corpus, which drops citations that no longer resolve). Rebuild
+  with `ingest-corpus` + `investigate-top`.
+- **Overview risk distribution reads `risk_scores`, not `case_reports`.** The
+  queue is by construction the top 1%, so a distribution of queued cases puts
+  every row in one band and shows nothing.
+- Design identity is deliberately opposite to Last Call (warm paper / Fraunces
+  serif / ember / rounded / mobile-first): Argus is cool dark slate, IBM Plex
+  Sans + Mono, ~0 radius, no shadows, desktop-dense. Signature = the provenance
+  rail (solid = measured, dashed = model, double = cited).
 
 ## Phase end protocol
 

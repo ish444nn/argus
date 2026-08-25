@@ -153,6 +153,11 @@ def test_replay_refuses_a_time_step_with_no_transactions(db_session, embedded):
     with pytest.raises(ValueError, match="no transactions"):
         replay_service.replay_batch(db_session, 999)
 
+    # The run row is created before anything that can fail, so the failure is
+    # visible -- but a non-existent time step must not linger in the overview.
+    db_session.execute(text("DELETE FROM batch_runs WHERE timestep = 999"))
+    db_session.commit()
+
 
 # --------------------------------------------------------------------------
 # Deterministic graph evidence

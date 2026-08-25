@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     llm_provider: Literal["gemini", "stub"] = "stub"
     gemini_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.6-flash"
     embedding_model: str = "gemini-embedding-001"
     embedding_dim: int = Field(default=768, ge=1)
 

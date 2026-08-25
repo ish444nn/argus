@@ -20,10 +20,11 @@ Two ideas sit at the centre, and both are tested rather than assumed:
 Full requirements: [docs/prd.md](docs/prd.md). Architecture decisions and
 implementation rules: [CLAUDE.md](CLAUDE.md).
 
-> **Status: Phase 4 — investigation.** Batches replay through Celery, the top
-> 1% become cases with deterministic evidence, and a LangGraph workflow
-> retrieves AML typology passages and writes a cited assessment for each.
-> Analyst sign-in and recorded decisions are Phase 5.
+> **Status: Phase 5 — the analyst product.** Batches replay through Celery, the
+> top 1% become cases with deterministic evidence, a LangGraph workflow
+> retrieves AML typology passages and writes a cited assessment, and an analyst
+> can work the queue and record a decision in the browser. Sign-in is the one
+> piece of the PRD's analyst flow still outstanding.
 >
 > **No API key is needed.** With `LLM_PROVIDER=stub` the corpus is embedded by
 > a deterministic hashing vectoriser and narratives are built from the evidence
@@ -241,16 +242,22 @@ a deterministic confidence score and quoted typology sources — see
 
 ```bash
 cd backend
-python -m argus.agent.cli ingest-corpus     # 27 chunks from 13 sources
-python -m argus.agent.cli investigate 1     # run the workflow for one case
+python -m argus.agent.cli ingest-corpus         # 27 chunks from 13 sources
+python -m argus.agent.cli investigate 1         # one case
+python -m argus.agent.cli investigate-top -h    # rebuild a demo state
 curl -X POST http://localhost:8000/api/cases/1/investigate    # async, via Celery
 curl http://localhost:8000/api/cases/1/sources                # what it cited
 ```
 
+> Running the test suite re-ingests the corpus (its fixtures do), which clears
+> citations that no longer resolve and leaves the corpus embedded by the stub.
+> After testing, re-run `ingest-corpus` and `investigate-top` to restore a
+> working demo state.
+
 ### Using Gemini
 
 Get a key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-(free tier covers `gemini-2.5-flash` and `gemini-embedding-001`), then in
+(free tier covers `gemini-3.6-flash` and `gemini-embedding-001`), then in
 `.env`:
 
 ```

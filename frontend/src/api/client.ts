@@ -113,11 +113,75 @@ export type CaseDetail = {
   typology_assessment: string | null;
   recommended_action: string | null;
   investigation_meta: InvestigationMeta | null;
+  error: string | null;
   batch_run_id: number | null;
   alert_budget: number | null;
   created_at: string;
   neighbourhood: Neighbourhood;
   evidence: EvidenceItem[];
+};
+
+export type Overview = {
+  alert_budget: number;
+  llm_provider: string;
+  replay_range: [number, number];
+  batches: {
+    runs: number;
+    latest_timestep: number | null;
+    scored: number;
+    queued: number;
+    running: number;
+    failed: number;
+    realised_alert_rate: number | null;
+  };
+  cases: {
+    total: number;
+    queued: number;
+    investigating: number;
+    ready: number;
+    failed: number;
+    primary: number;
+    secondary: number;
+    model_written: number;
+    rule_written: number;
+    awaiting_review: number;
+  };
+  decisions: Record<string, number>;
+  typologies: Record<string, number>;
+  evidence: Record<string, number>;
+  risk_distribution: { band: string; count: number; alerted: number }[];
+  corpus: {
+    chunks: number;
+    sources: number;
+    publishers: number;
+    embedding_model: string | null;
+  };
+};
+
+export type Neighbour = {
+  tx_id: number;
+  direction: "in" | "out";
+  timestep: number;
+  label: string;
+  in_degree: number;
+  out_degree: number;
+  risk_score: number | null;
+  flagged: boolean;
+};
+
+export type NeighbourhoodGraph = {
+  tx_id: number;
+  total_degree: number;
+  truncated: boolean;
+  neighbours: Neighbour[];
+};
+
+export type Review = {
+  review_id: number;
+  decision: string;
+  note: string | null;
+  analyst: string;
+  created_at: string;
 };
 
 export type BatchRun = {
@@ -154,15 +218,25 @@ export function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>("/health");
 }
 
-export function getQueue(params: {
+export type QueueParams = {
   timestep?: number;
+  status?: string;
+  queueTier?: string;
+  decision?: string;
+  undecidedOnly?: boolean;
   limit?: number;
   offset?: number;
   sortBy?: string;
   descending?: boolean;
-}): Promise<QueuePage> {
+};
+
+export function getQueue(params: QueueParams): Promise<QueuePage> {
   const search = new URLSearchParams();
   if (params.timestep !== undefined) search.set("timestep", String(params.timestep));
+  if (params.status) search.set("status", params.status);
+  if (params.queueTier) search.set("queue_tier", params.queueTier);
+  if (params.decision) search.set("decision", params.decision);
+  if (params.undecidedOnly) search.set("undecided_only", "true");
   search.set("limit", String(params.limit ?? 50));
   search.set("offset", String(params.offset ?? 0));
   search.set("sort_by", params.sortBy ?? "risk_score");
@@ -185,6 +259,30 @@ export function startInvestigation(
     `/api/cases/${caseId}/investigate`,
     { method: "POST" },
   );
+}
+
+export function getOverview(): Promise<Overview> {
+  return request<Overview>("/api/overview");
+}
+
+export function getNeighbourhood(txId: number): Promise<NeighbourhoodGraph> {
+  return request<NeighbourhoodGraph>(`/api/transactions/${txId}/neighbourhood`);
+}
+
+export function getReviews(caseId: number): Promise<Review[]> {
+  return request<Review[]>(`/api/cases/${caseId}/reviews`);
+}
+
+export function recordReview(
+  caseId: number,
+  decision: string,
+  note?: string,
+): Promise<Review> {
+  return request<Review>(`/api/cases/${caseId}/reviews`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decision, note: note || null }),
+  });
 }
 
 export function getBatches(): Promise<BatchRun[]> {
