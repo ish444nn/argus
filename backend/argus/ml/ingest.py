@@ -89,6 +89,7 @@ def write_embeddings(
     tx_ids: np.ndarray,
     embeddings: np.ndarray,
     model_version: str,
+    graph_scores: np.ndarray | None = None,
 ) -> int:
     """Upsert GraphSAGE embeddings into the pgvector table.
 
@@ -97,17 +98,22 @@ def write_embeddings(
     """
     if len(tx_ids) != len(embeddings):
         raise ValueError("tx_ids and embeddings must be the same length")
+    if graph_scores is not None and len(graph_scores) != len(tx_ids):
+        raise ValueError("graph_scores must be the same length as tx_ids")
 
     connection = session.connection().connection
     with connection.cursor() as cursor:
-        # Only the three columns being copied. `LIKE transaction_embeddings`
-        # would inherit created_at's NOT NULL without its DEFAULT.
+        # Only the columns being copied. `LIKE transaction_embeddings` would
+        # inherit created_at's NOT NULL without its DEFAULT.
         cursor.execute(
             "CREATE TEMP TABLE _emb ("
-            "tx_id bigint, model_version varchar(120), embedding vector(64)"
+            "tx_id bigint, model_version varchar(120), embedding vector(64), "
+            "graph_score double precision"
             ") ON COMMIT DROP"
         )
-        with cursor.copy("COPY _emb (tx_id, model_version, embedding) FROM STDIN") as copy:
+        with cursor.copy(
+            "COPY _emb (tx_id, model_version, embedding, graph_score) FROM STDIN"
+        ) as copy:
             for start in range(0, len(tx_ids), COPY_BATCH):
                 stop = min(start + COPY_BATCH, len(tx_ids))
                 copy.write(
@@ -115,15 +121,22 @@ def write_embeddings(
                         f"{tx_ids[i]}\t{model_version}\t"
                         + "["
                         + ",".join(f"{v:.6g}" for v in embeddings[i])
-                        + "]\n"
+                        + "]\t"
+                        # \N is COPY's NULL marker, for when the caller has
+                        # embeddings but no scores.
+                        + ("\\N" if graph_scores is None else f"{graph_scores[i]:.6g}")
+                        + "\n"
                         for i in range(start, stop)
                     )
                 )
         cursor.execute(
-            "INSERT INTO transaction_embeddings (tx_id, model_version, embedding) "
-            "SELECT tx_id, model_version, embedding FROM _emb "
+            "INSERT INTO transaction_embeddings "
+            "(tx_id, model_version, embedding, graph_score) "
+            "SELECT tx_id, model_version, embedding, graph_score FROM _emb "
             "ON CONFLICT (tx_id) DO UPDATE SET "
-            "model_version = EXCLUDED.model_version, embedding = EXCLUDED.embedding"
+            "model_version = EXCLUDED.model_version, "
+            "embedding = EXCLUDED.embedding, "
+            "graph_score = EXCLUDED.graph_score"
         )
 
     session.commit()

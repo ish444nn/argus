@@ -19,11 +19,40 @@ Layout:
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-MODELS_DIR = Path(__file__).resolve().parents[2].parent / "models"
+
+def _default_models_dir() -> Path:
+    """Find the models directory by walking up from this file.
+
+    A fixed relative depth does not work: on the host the package sits at
+    `<repo>/backend/argus/ml/`, but in the container it is `/app/argus/ml/`
+    with the models bind-mounted at `/app/models`. Counting parents finds
+    `<repo>/models` in one and `/models` in the other. Walking up until a
+    `models` directory exists gets both right.
+    """
+    override = os.environ.get("ARGUS_MODELS_DIR")
+    if override:
+        return Path(override)
+
+    here = Path(__file__).resolve()
+    candidates = [parent / "models" for parent in here.parents]
+
+    # Prefer a directory that actually holds a model, so a stray empty
+    # `models/` closer to the package cannot shadow the real store.
+    for candidate in candidates:
+        if candidate.is_dir() and any(candidate.glob("*/metadata.json")):
+            return candidate
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return here.parents[2].parent / "models"
+
+
+MODELS_DIR = _default_models_dir()
 
 
 @dataclass

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from argus import __version__
-from argus.api.routers import health, tasks
+from argus.api.routers import batches, health, queue, tasks
 from argus.core.logging import configure_logging
 
 configure_logging()
@@ -27,3 +27,5 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(tasks.router)
+app.include_router(batches.router)
+app.include_router(queue.router)

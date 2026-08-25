@@ -98,6 +98,9 @@ class BatchRun(Base):
         String(16), nullable=False, default=enums.BatchStatus.PENDING
     )
     model_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # The budget this run actually applied, so a queue size is always
+    # explainable after the fact.
+    alert_budget: Mapped[float | None] = mapped_column(Double, nullable=True)
     scored_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     queued_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     investigated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -107,7 +110,12 @@ class BatchRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = created_at_column()
 
-    __table_args__ = (_check("status", enums.BatchStatus, "status_valid"),)
+    __table_args__ = (
+        _check("status", enums.BatchStatus, "status_valid"),
+        # One run per time step: replay is idempotent, so re-running a
+        # batch updates its row rather than appending a second history.
+        UniqueConstraint("timestep"),
+    )
 
 
 class RiskScore(Base):
@@ -155,6 +163,10 @@ class TransactionEmbedding(Base):
     )
     model_version: Mapped[str] = mapped_column(String(120), nullable=False)
     embedding: Mapped[list[float]] = mapped_column(Vector(TX_EMBEDDING_DIM), nullable=False)
+    # The model's illicit probability, computed in the same pass as the
+    # embedding. Kept here rather than in `risk_scores` because it is a second
+    # opinion quoted as evidence, not a score that gates the queue.
+    graph_score: Mapped[float | None] = mapped_column(Double, nullable=True)
     created_at: Mapped[datetime] = created_at_column()
 
     __table_args__ = (
@@ -219,6 +231,14 @@ class CaseReport(Base):
     # without joining risk_scores.
     risk_score: Mapped[float] = mapped_column(Double, nullable=False)
     model_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    # Position within its batch, 1 = highest scoring. Stored because it is
+    # fixed the moment the batch is ranked, and recomputing a window function
+    # on every queue page load would be wasted work.
+    queue_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Snapshot of the GraphSAGE second opinion, for display and sorting. The
+    # citable form is the `graph_model_corroboration` evidence item; this is
+    # the queryable copy, same rationale as `risk_score` above.
+    graph_score: Mapped[float | None] = mapped_column(Double, nullable=True)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=enums.CaseStatus.QUEUED, index=True
     )

@@ -1,91 +1,69 @@
 import { useQuery } from "@tanstack/react-query";
-import { getHealth, type DependencyStatus } from "./api/client";
+import { useState } from "react";
+import { getHealth } from "./api/client";
+import { CaseDetail } from "./components/CaseDetail";
+import { Queue } from "./components/Queue";
 
-const DEPENDENCY_LABELS: Record<string, string> = {
-  api: "API",
-  postgres: "PostgreSQL",
-  pgvector: "pgvector",
-  redis: "Redis",
-};
+function HealthPill() {
+  const { data } = useQuery({
+    queryKey: ["health"],
+    queryFn: getHealth,
+    refetchInterval: 30_000,
+  });
 
-function StatusDot({ status }: { status: DependencyStatus["status"] }) {
+  if (!data) return null;
+  const ok = data.status === "ok";
+  const broken = Object.entries(data.dependencies)
+    .filter(([, dep]) => dep.status === "error")
+    .map(([name]) => name);
+
   return (
     <span
-      className={`inline-block size-2.5 rounded-full ${
-        status === "ok" ? "bg-emerald-400" : "bg-rose-500"
-      }`}
-      aria-hidden
-    />
-  );
-}
-
-function DependencyRow({ name, dep }: { name: string; dep: DependencyStatus }) {
-  return (
-    <li className="flex items-center justify-between gap-4 border-b border-white/5 px-4 py-3 last:border-0">
-      <span className="flex items-center gap-3">
-        <StatusDot status={dep.status} />
-        <span className="text-sm font-medium text-zinc-100">
-          {DEPENDENCY_LABELS[name] ?? name}
-        </span>
-      </span>
-      <span className="text-right font-mono text-xs text-zinc-400">
-        {dep.detail ?? dep.status}
-      </span>
-    </li>
+      title={ok ? "all dependencies healthy" : `unavailable: ${broken.join(", ")}`}
+      className="flex items-center gap-1.5 text-xs text-zinc-500"
+    >
+      <span
+        className={`inline-block size-1.5 rounded-full ${
+          ok ? "bg-emerald-400" : "bg-rose-500"
+        }`}
+      />
+      {ok ? "healthy" : broken.join(", ")}
+      <span className="text-zinc-700">·</span>v{data.version}
+    </span>
   );
 }
 
 export default function App() {
-  const { data, isPending, error } = useQuery({
-    queryKey: ["health"],
-    queryFn: getHealth,
-    refetchInterval: 10_000,
-  });
+  const [caseId, setCaseId] = useState<number | null>(null);
+  const [timestep, setTimestep] = useState<number | undefined>(undefined);
 
   return (
-    <main className="min-h-full bg-zinc-950 px-6 py-16 text-zinc-100">
-      <div className="mx-auto w-full max-w-lg">
-        <h1 className="text-2xl font-semibold tracking-tight">Argus</h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          Transaction risk assessment and evidence-grounded investigation.
+    <div className="flex h-full flex-col bg-zinc-950 text-zinc-100">
+      <header className="flex items-center gap-3 border-b border-white/10 px-5 py-3">
+        <h1 className="text-sm font-semibold tracking-tight">Argus</h1>
+        <p className="hidden text-xs text-zinc-500 sm:block">
+          Transaction risk assessment and evidence-grounded investigation
         </p>
+        <div className="ml-auto">
+          <HealthPill />
+        </div>
+      </header>
 
-        <section className="mt-8 overflow-hidden rounded-xl border border-white/10 bg-zinc-900/60">
-          <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-            <h2 className="text-sm font-semibold">System health</h2>
-            {data && (
-              <span className="font-mono text-xs text-zinc-500">
-                v{data.version} &middot; {data.environment}
-              </span>
-            )}
-          </header>
-
-          {isPending && <p className="px-4 py-6 text-sm text-zinc-400">Checking dependencies…</p>}
-
-          {error && (
-            <p className="px-4 py-6 text-sm text-rose-400">
-              Cannot reach the API. Is <code className="font-mono">docker compose up</code> running?
-            </p>
-          )}
-
-          {data && (
-            <ul>
-              {Object.entries(data.dependencies).map(([name, dep]) => (
-                <DependencyRow key={name} name={name} dep={dep} />
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {data && (
-          <p className="mt-4 text-xs text-zinc-500">
-            Overall status:{" "}
-            <span className={data.status === "ok" ? "text-emerald-400" : "text-amber-400"}>
-              {data.status}
-            </span>
-          </p>
+      <main className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[1fr_28rem]">
+        <Queue
+          selectedCaseId={caseId}
+          onSelect={setCaseId}
+          timestep={timestep}
+          onTimestepChange={setTimestep}
+        />
+        {caseId !== null ? (
+          <CaseDetail caseId={caseId} onClose={() => setCaseId(null)} />
+        ) : (
+          <aside className="hidden items-center justify-center border-l border-white/10 p-8 text-center text-sm text-zinc-600 lg:flex">
+            Select a case to see its evidence.
+          </aside>
         )}
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

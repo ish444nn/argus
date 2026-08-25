@@ -1,8 +1,9 @@
 # CLAUDE.md — Argus working notes
 
 Source of truth for requirements: `docs/prd.md`. This file is *how* we build it.
-Status: **Phase 2 complete** — data ingest, temporal splits, both model families,
-embeddings in pgvector. Next: Phase 3 (batch replay + risk queue via Celery).
+Status: **Phase 3 complete** — Celery replay, risk queue, deterministic evidence,
+pgvector similarity, queue/case API + UI. Next: Phase 4 (RAG corpus, LangGraph,
+Gemini narrative, deterministic confidence).
 
 ## What this project is
 
@@ -87,13 +88,17 @@ API key. Live query embedding is used when a key is present.
 
 ## Celery tasks (minimum viable — exactly 2)
 
-- `replay_batch(timestep)` — score with XGBoost, compute GraphSAGE embeddings,
-  write `risk_scores` + queued `case_reports`, then `.delay()` one
-  `investigate_case` per queued case. No chord, no chain, no callbacks.
-- `investigate_case(case_id)` — run the LangGraph investigation, write evidence
-  and deterministic confidence, set primary/secondary queue tier.
+- `replay_batch(timestep)` — DONE (Phase 3). Score with XGBoost, rank, take the
+  top 1%, upsert `risk_scores` + `case_reports`, run the deterministic evidence
+  tools. Idempotent. GraphSAGE scores are read from `transaction_embeddings`,
+  written by `argus.ml.cli embed`.
+- `investigate_case(case_id)` — Phase 4. LangGraph investigation, typology
+  retrieval, narrative, deterministic confidence, primary/secondary tier.
 
 Progress lives in the `batch_runs` table, NOT in Celery's result backend.
+**Heavy imports go INSIDE task bodies** — the API imports `argus.jobs.tasks` to
+dispatch, and the API image has no torch/xgboost/numpy.
+**Restart the worker after adding a task**; Celery registers at boot.
 
 ## Hosting (LOCKED)
 
@@ -208,6 +213,35 @@ MEASURED:
   `python -m argus.ml.cli download|inspect|ingest|train|embed`.
 - Local DB after ingest + embeddings: ~384 MB. The hosted Supabase subset must
   drop the `features` arrays (they are 168 MB of the total) -- API never reads them.
+
+## Phase 3 findings that constrain Phase 4
+
+- **The queue is structurally flat.** Across 4 replayed batches (221 cases), only
+  ONE case had in- or out-degree > 1. XGBoost's top 1% is almost entirely
+  degree-<=1 transactions, so fan_in / fan_out / dense_cluster essentially never
+  fire on the queue; only 4 `relay_chain` items fired in total. The heuristics are
+  correct (verified firing on high-degree nodes) — the queue population just does
+  not have those shapes. DO NOT lower the thresholds to force hits; that would be
+  fitting the evidence layer to the answer.
+- **Consequence for Phase 4 RAG**: typology retrieval keyed only off fired
+  heuristics would almost never run. Key it off `structural_similarity` and
+  `graph_model_corroboration` too, or map the pass-through/low-degree shape to a
+  typology. Otherwise the corpus is dead weight.
+- **In practice evidence is: ~4.6 structural_similarity + 1 graph_model_corroboration
+  per case.** Similarity is doing the real work, which vindicates the Phase 0.1
+  decision to keep GraphSAGE for the investigation layer.
+- **pgvector settings are engine-level** (`argus.db.session.PGVECTOR_OPTIONS`),
+  not per-query. `hnsw.iterative_scan=relaxed_order` + `ef_search=200`. Without it
+  the filtered kNN returns ZERO rows — confirmed again by EXPLAIN in Phase 3.
+- **`SET LOCAL` leaks past a savepoint.** `find_similar(exact=True)` disables
+  index scans and MUST `RESET` them in a `finally`; without that every later query
+  on the session silently runs without indexes. This made an early version of the
+  regression test pass by accident.
+- **Alert budget = exact top-k by rank** (`ml.scoring.select_alerts`), never a
+  stored threshold. Verified: 5507 -> 56, 6393 -> 64.
+- Replay idempotency rests on three unique constraints: `batch_runs.timestep`,
+  `risk_scores(tx_id, model_version)`, `case_reports.tx_id`. Cases that fall out
+  of the queue are deleted UNLESS reviewed.
 
 ## Phase end protocol
 

@@ -31,3 +31,106 @@ class TaskStatus(BaseModel):
     task_id: str
     state: str
     result: dict | None = None
+
+
+# --------------------------------------------------------------------------
+# Queue, cases and evidence
+# --------------------------------------------------------------------------
+
+
+class QueueEntryOut(BaseModel):
+    case_id: int
+    tx_id: int
+    timestep: int
+    risk_score: float
+    queue_rank: int | None
+    graph_score: float | None
+    status: str
+    queue_tier: str | None
+    confidence: float | None
+    evidence_count: int
+    latest_decision: str | None
+    created_at: str
+
+
+class QueuePage(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[QueueEntryOut]
+
+
+class EvidenceItemOut(BaseModel):
+    id: int
+    kind: str
+    summary: str
+    strength: float
+    weight: float
+    # strength x weight -- what this item will contribute to the deterministic
+    # confidence score in Phase 4.
+    contribution: float
+    neighbour_tx_id: int | None
+    neighbour_timestep: int | None
+    typology_reference_id: int | None
+    details: dict | None
+    created_at: str
+
+
+class NeighbourhoodOut(BaseModel):
+    tx_id: int
+    timestep: int
+    in_degree: int
+    out_degree: int
+    total_degree: int
+    neighbour_count: int
+    same_batch_neighbours: int
+    flagged_neighbours: int
+    neighbour_mean_risk: float | None
+    chain_length: int
+
+
+class CaseDetail(BaseModel):
+    case_id: int
+    tx_id: int
+    timestep: int
+    label: str
+    risk_score: float
+    model_version: str
+    queue_rank: int | None
+    graph_score: float | None
+    status: str
+    queue_tier: str | None
+    confidence: float | None
+    confidence_version: str | None
+    narrative: str | None
+    narrative_source: str | None
+    error: str | None
+    batch_run_id: int | None
+    alert_budget: float | None
+    created_at: str
+    updated_at: str
+    neighbourhood: NeighbourhoodOut
+    evidence: list[EvidenceItemOut]
+
+
+class ReplayDispatched(BaseModel):
+    task_id: str
+    timestep: int
+    alert_budget: float
+    status_url: str
+
+
+class BatchRunOut(BaseModel):
+    batch_run_id: int
+    timestep: int
+    status: str
+    model_version: str | None
+    alert_budget: float | None
+    scored_count: int
+    queued_count: int
+    investigated_count: int
+    failed_count: int
+    cases: int
+    error: str | None
+    started_at: str | None
+    finished_at: str | None

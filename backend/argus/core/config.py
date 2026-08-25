@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
 
+    # Fraction of each batch that becomes an alert. Applied by ranking the
+    # batch, never as a stored probability cutoff -- Phase 2 measured a frozen
+    # threshold alerting 0.12% of the test range instead of 1%.
+    alert_budget: float = Field(default=0.01, gt=0, le=1)
+    # Time steps the demo replay is allowed to touch. Earlier ones are training
+    # data; scoring them would be meaningless.
+    replay_min_timestep: int = 35
+    replay_max_timestep: int = 49
+
     llm_provider: Literal["gemini", "stub"] = "stub"
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-2.5-flash"

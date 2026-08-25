@@ -145,7 +145,9 @@ def cmd_embed(args: argparse.Namespace) -> None:
     print(f"graph risk score range: {scores.min():.4f}..{scores.max():.4f}")
 
     with SessionLocal() as session:
-        written = ingest_module.write_embeddings(session, tx_ids, embeddings, metadata.version)
+        written = ingest_module.write_embeddings(
+            session, tx_ids, embeddings, metadata.version, graph_scores=scores
+        )
     print(f"wrote {written} embeddings to transaction_embeddings")
 
 
