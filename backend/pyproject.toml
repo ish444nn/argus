@@ -31,6 +31,13 @@ gnn = [
     "pandas>=2.2",
     "scikit-learn>=1.5",
 ]
+# The investigation layer: LangGraph orchestration and the Gemini SDK.
+# Worker-only, like `gnn` -- the API reads persisted reports and never calls a
+# model, so keeping these out of the API image keeps it small.
+agent = [
+    "langgraph>=0.2",
+    "google-genai>=1.0",
+]
 # Training only. MLflow is an experiment record, not a runtime dependency:
 # the worker loads an exported artifact and never talks to a tracking server,
 # so keeping this out of `gnn` keeps it out of the worker image.

@@ -147,7 +147,9 @@ def get_case(session: Session, case_id: int) -> dict[str, Any] | None:
         text("""
         SELECT c.id AS case_id, c.tx_id, c.risk_score, c.model_version, c.queue_rank,
                c.graph_score, c.status, c.queue_tier, c.confidence, c.confidence_version,
-               c.narrative, c.narrative_source, c.error, c.created_at, c.updated_at,
+               c.narrative, c.narrative_source, c.typology_assessment,
+               c.recommended_action, c.investigation_meta,
+               c.error, c.created_at, c.updated_at,
                t.timestep, t.label, t.in_degree, t.out_degree,
                b.id AS batch_run_id, b.alert_budget
         FROM case_reports c
@@ -179,6 +181,9 @@ def get_case(session: Session, case_id: int) -> dict[str, Any] | None:
         "confidence_version": row.confidence_version,
         "narrative": row.narrative,
         "narrative_source": row.narrative_source,
+        "typology_assessment": row.typology_assessment,
+        "recommended_action": row.recommended_action,
+        "investigation_meta": row.investigation_meta,
         "error": row.error,
         "batch_run_id": int(row.batch_run_id) if row.batch_run_id is not None else None,
         "alert_budget": float(row.alert_budget) if row.alert_budget is not None else None,

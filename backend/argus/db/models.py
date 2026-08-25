@@ -198,6 +198,11 @@ class TypologyReference(Base):
     # returned for a fired heuristic.
     patterns: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(TEXT_EMBEDDING_DIM), nullable=True)
+    # Which embedder produced the vector. Corpus and query vectors must come
+    # from the same model or the distances are meaningless, so retrieval
+    # checks this rather than trusting that the two happen to match.
+    embedding_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    document: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = created_at_column()
 
     __table_args__ = (
@@ -249,6 +254,14 @@ class CaseReport(Base):
     queue_tier: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     narrative: Mapped[str | None] = mapped_column(Text, nullable=True)
     narrative_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # The typology the investigation judged most consistent with the evidence,
+    # and what it suggests doing next. Both are model-authored and are stored
+    # apart from the deterministic columns so the two can never be confused.
+    typology_assessment: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    recommended_action: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Generation provenance: provider, model, prompt version, retry count,
+    # which chunks were retrieved. Enough to explain any stored narrative.
+    investigation_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = created_at_column()
     updated_at: Mapped[datetime] = updated_at_column()

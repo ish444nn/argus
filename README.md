@@ -20,10 +20,15 @@ Two ideas sit at the centre, and both are tested rather than assumed:
 Full requirements: [docs/prd.md](docs/prd.md). Architecture decisions and
 implementation rules: [CLAUDE.md](CLAUDE.md).
 
-> **Status: Phase 3 — replay and evidence.** Batches can be replayed through
-> Celery, the top 1% become cases, and each case is backed by deterministic,
-> cited evidence. The AML typology corpus, the LangGraph investigation and the
-> narrative layer are Phase 4; analyst sign-in and decisions are Phase 5.
+> **Status: Phase 4 — investigation.** Batches replay through Celery, the top
+> 1% become cases with deterministic evidence, and a LangGraph workflow
+> retrieves AML typology passages and writes a cited assessment for each.
+> Analyst sign-in and recorded decisions are Phase 5.
+>
+> **No API key is needed.** With `LLM_PROVIDER=stub` the corpus is embedded by
+> a deterministic hashing vectoriser and narratives are built from the evidence
+> by rule, so the whole pipeline runs and every test passes offline. Add a
+> Gemini key for model-written narratives.
 >
 > The model comparison landed on the baseline: `xgb-all166` reaches 0.374 recall
 > at a 1% alert budget on the held-out range against GraphSAGE's 0.054, so
@@ -41,12 +46,12 @@ backend/            One Python package, one pyproject
     db/             SQLAlchemy models, enums, session
     jobs/           Celery app and tasks
     ml/             Dataset, splits, features, graph, models, evaluation
-    agent/          Evidence contract and the deterministic investigation tools
-    services/       Batch replay (write side) and queue queries (read side)
+    agent/          Evidence, tools, RAG corpus, LangGraph workflow, LLM
+    services/       Batch replay, investigation, queue queries
   alembic/          Migrations
   tests/
 frontend/           Vite + React + TypeScript + Tailwind + TanStack Query
-data/               Datasets (git-ignored) and the curated typology corpus
+data/               Elliptic dataset (git-ignored) + committed typology corpus
 models/             Exported model artifacts (git-ignored)
 docs/               PRD and design notes
 docker/             Container support files
@@ -230,7 +235,35 @@ involved at this stage:
 Every item stores its provenance as a foreign key, not free text, so an
 analyst can follow any claim back to the row that produced it.
 
-See [docs/investigation.md](docs/investigation.md).
+Once a case is investigated it also carries a written assessment, a typology,
+a deterministic confidence score and quoted typology sources — see
+[docs/agent.md](docs/agent.md).
+
+```bash
+cd backend
+python -m argus.agent.cli ingest-corpus     # 27 chunks from 13 sources
+python -m argus.agent.cli investigate 1     # run the workflow for one case
+curl -X POST http://localhost:8000/api/cases/1/investigate    # async, via Celery
+curl http://localhost:8000/api/cases/1/sources                # what it cited
+```
+
+### Using Gemini
+
+Get a key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+(free tier covers `gemini-2.5-flash` and `gemini-embedding-001`), then in
+`.env`:
+
+```
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your-key
+```
+
+Re-run `ingest-corpus` afterwards: corpus and query vectors must come from the
+same embedding model, and retrieval refuses a mismatch rather than returning
+confident nonsense.
+
+See [docs/investigation.md](docs/investigation.md) and
+[docs/agent.md](docs/agent.md).
 
 ## Database schema
 

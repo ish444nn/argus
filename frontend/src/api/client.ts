@@ -69,6 +69,33 @@ export type Neighbourhood = {
   chain_length: number;
 };
 
+export type CitedSource = {
+  evidence_id: number;
+  reference_id: number;
+  typology_id: string;
+  title: string;
+  publisher: string;
+  source_url: string;
+  document: string | null;
+  year: number | null;
+  section_heading: string;
+  text: string;
+  patterns: string[];
+  similarity: number;
+  retrieved_for: string[];
+};
+
+export type InvestigationMeta = {
+  provider?: string;
+  model?: string;
+  used_fallback?: boolean;
+  attempts?: number;
+  retrieval_patterns?: string[];
+  retrieved_sources?: string[];
+  validation_errors?: string[];
+  confidence_contributions?: Record<string, number>;
+};
+
 export type CaseDetail = {
   case_id: number;
   tx_id: number;
@@ -82,6 +109,10 @@ export type CaseDetail = {
   queue_tier: string | null;
   confidence: number | null;
   narrative: string | null;
+  narrative_source: string | null;
+  typology_assessment: string | null;
+  recommended_action: string | null;
+  investigation_meta: InvestigationMeta | null;
   batch_run_id: number | null;
   alert_budget: number | null;
   created_at: string;
@@ -141,6 +172,19 @@ export function getQueue(params: {
 
 export function getCase(caseId: number): Promise<CaseDetail> {
   return request<CaseDetail>(`/api/cases/${caseId}`);
+}
+
+export function getCitedSources(caseId: number): Promise<CitedSource[]> {
+  return request<CitedSource[]>(`/api/cases/${caseId}/sources`);
+}
+
+export function startInvestigation(
+  caseId: number,
+): Promise<{ task_id: string; provider: string }> {
+  return request<{ task_id: string; provider: string }>(
+    `/api/cases/${caseId}/investigate`,
+    { method: "POST" },
+  );
 }
 
 export function getBatches(): Promise<BatchRun[]> {

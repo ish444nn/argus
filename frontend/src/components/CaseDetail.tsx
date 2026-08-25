@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getCase } from "../api/client";
 import { EvidenceList } from "./Evidence";
+import { Investigation } from "./Investigation";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -15,6 +16,10 @@ export function CaseDetail({ caseId, onClose }: { caseId: number; onClose: () =>
   const { data, isPending, error } = useQuery({
     queryKey: ["case", caseId],
     queryFn: () => getCase(caseId),
+    // While an investigation is running the status flips through
+    // `investigating`; poll so the panel updates without a manual refresh.
+    refetchInterval: (query) =>
+      query.state.data?.status === "investigating" ? 2000 : false,
   });
 
   return (
@@ -52,7 +57,7 @@ export function CaseDetail({ caseId, onClose }: { caseId: number; onClose: () =>
               />
               <Stat
                 label="Confidence"
-                value={data.confidence !== null ? data.confidence.toFixed(3) : "Phase 4"}
+                value={data.confidence !== null ? data.confidence.toFixed(3) : "—"}
               />
               <Stat label="Status" value={data.status} />
             </dl>
@@ -89,11 +94,22 @@ export function CaseDetail({ caseId, onClose }: { caseId: number; onClose: () =>
             </section>
 
             <section className="mt-6">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Evidence
-              </h3>
-              <EvidenceList items={data.evidence} />
+              <div className="mb-2 flex items-baseline gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                  Observed evidence
+                </h3>
+                <span className="text-[11px] text-zinc-600">
+                  measured by Argus
+                </span>
+              </div>
+              <EvidenceList
+                items={data.evidence.filter(
+                  (item) => item.kind !== "typology_reference",
+                )}
+              />
             </section>
+
+            <Investigation detail={data} />
 
             <p className="mt-6 border-t border-white/10 pt-3 text-[11px] text-zinc-600">
               Ground-truth label:{" "}

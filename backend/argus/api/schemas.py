@@ -104,6 +104,9 @@ class CaseDetail(BaseModel):
     confidence_version: str | None
     narrative: str | None
     narrative_source: str | None
+    typology_assessment: str | None
+    recommended_action: str | None
+    investigation_meta: dict | None
     error: str | None
     batch_run_id: int | None
     alert_budget: float | None
@@ -134,3 +137,28 @@ class BatchRunOut(BaseModel):
     error: str | None
     started_at: str | None
     finished_at: str | None
+
+
+class CitedSource(BaseModel):
+    """A typology passage a report cites, resolved back to its corpus row."""
+
+    evidence_id: int
+    reference_id: int
+    typology_id: str
+    title: str
+    publisher: str
+    source_url: str
+    document: str | None
+    year: int | None
+    section_heading: str
+    text: str
+    patterns: list[str]
+    similarity: float
+    retrieved_for: list[str]
+
+
+class InvestigationDispatched(BaseModel):
+    task_id: str
+    case_id: int
+    provider: str
+    status_url: str

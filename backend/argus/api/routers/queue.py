@@ -11,9 +11,18 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
-from argus.api.deps import SessionDep
-from argus.api.schemas import CaseDetail, EvidenceItemOut, QueueEntryOut, QueuePage
+from argus.api.deps import SessionDep, SettingsDep
+from argus.api.schemas import (
+    CaseDetail,
+    CitedSource,
+    EvidenceItemOut,
+    InvestigationDispatched,
+    QueueEntryOut,
+    QueuePage,
+)
 from argus.db.enums import CaseStatus, Decision, QueueTier
+from argus.jobs.celery_app import celery_app
+from argus.services import investigation as investigation_service
 from argus.services import queue as queue_service
 
 router = APIRouter(prefix="/api", tags=["queue"])
@@ -74,3 +83,45 @@ def list_evidence(case_id: int, session: SessionDep) -> list[EvidenceItemOut]:
     if queue_service.get_case(session, case_id) is None:
         raise HTTPException(status_code=404, detail=f"no case {case_id}")
     return [EvidenceItemOut(**item) for item in queue_service.list_evidence(session, case_id)]
+
+
+@router.post(
+    "/cases/{case_id}/investigate",
+    response_model=InvestigationDispatched,
+    status_code=202,
+)
+def start_investigation(
+    case_id: int, session: SessionDep, settings: SettingsDep
+) -> InvestigationDispatched:
+    """Queue the investigation for one case.
+
+    Returns 202 rather than blocking: the workflow retrieves, calls a language
+    model and writes a report, which is not something to hold a request open
+    for. Progress is read back from the case's own status field.
+    """
+    if queue_service.get_case(session, case_id) is None:
+        raise HTTPException(status_code=404, detail=f"no case {case_id}")
+
+    async_result = celery_app.send_task("argus.investigate_case", args=[case_id])
+    return InvestigationDispatched(
+        task_id=async_result.id,
+        case_id=case_id,
+        provider=settings.llm_provider,
+        status_url=f"/api/cases/{case_id}",
+    )
+
+
+@router.get("/cases/{case_id}/sources", response_model=list[CitedSource])
+def list_cited_sources(case_id: int, session: SessionDep) -> list[CitedSource]:
+    """The typology passages this report cites, with their full text.
+
+    Separate from the evidence endpoint because these answer a different
+    question: not "what did Argus find" but "on whose authority is this
+    pattern being called a typology".
+    """
+    if queue_service.get_case(session, case_id) is None:
+        raise HTTPException(status_code=404, detail=f"no case {case_id}")
+    return [
+        CitedSource(**source)
+        for source in investigation_service.list_cited_sources(session, case_id)
+    ]

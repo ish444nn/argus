@@ -2,8 +2,10 @@
 #
 #   api    - FastAPI only. No torch, no xgboost. This is what gets deployed to
 #            the free-tier web service, where it just reads precomputed rows.
-#   worker - adds the `gnn` extra (torch, PyTorch Geometric, xgboost) because
-#            scoring, embedding and training all happen in the worker.
+#   worker - adds `gnn` (torch, PyTorch Geometric, xgboost) because scoring
+#            and embedding happen there, and `agent` (LangGraph, the Gemini
+#            SDK) because the investigation workflow does too. The API
+#            reads persisted reports and calls neither.
 #
 # PyTorch comes from the CPU-only index (configured in pyproject.toml); the
 # default CUDA build is several GB and useless here.
@@ -27,7 +29,7 @@ FROM base AS api-deps
 RUN uv sync --locked --no-dev --no-install-project
 
 FROM base AS worker-deps
-RUN uv sync --locked --no-dev --no-install-project --extra gnn
+RUN uv sync --locked --no-dev --no-install-project --extra gnn --extra agent
 
 
 FROM api-deps AS api
@@ -39,5 +41,5 @@ CMD ["uvicorn", "argus.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM worker-deps AS worker
 COPY backend/ ./
-RUN uv sync --locked --no-dev --extra gnn
+RUN uv sync --locked --no-dev --extra gnn --extra agent
 CMD ["celery", "-A", "argus.jobs.celery_app:celery_app", "worker", "--loglevel=info", "--concurrency=2"]

@@ -88,15 +88,16 @@ export function EvidenceList({ items }: { items: EvidenceItem[] }) {
     );
   }
 
-  const total = items.reduce((sum, item) => sum + item.contribution, 0);
+  const kinds = new Set(items.map((item) => item.kind)).size;
 
   return (
     <>
       <p className="mb-3 text-xs text-zinc-500">
-        {items.length} item{items.length === 1 ? "" : "s"}, total contribution{" "}
-        <span className="font-mono text-zinc-300">{total.toFixed(3)}</span>. Confidence
-        is computed from these deterministically in Phase 4 — never self-reported by a
-        language model.
+        {items.length} item{items.length === 1 ? "" : "s"} across {kinds} kind
+        {kinds === 1 ? "" : "s"}. Confidence is computed from these
+        deterministically — never self-reported by a language model. Items of the
+        same kind combine with diminishing returns, so corroboration across kinds
+        counts for more than repetition within one.
       </p>
       <ul className="space-y-2">
         {items.map((item) => (

@@ -1,9 +1,9 @@
 # CLAUDE.md — Argus working notes
 
 Source of truth for requirements: `docs/prd.md`. This file is *how* we build it.
-Status: **Phase 3 complete** — Celery replay, risk queue, deterministic evidence,
-pgvector similarity, queue/case API + UI. Next: Phase 4 (RAG corpus, LangGraph,
-Gemini narrative, deterministic confidence).
+Status: **Phase 4 complete** — RAG corpus, LangGraph investigation, Gemini
+provider, citation validation, deterministic confidence, investigation UI.
+Next: Phase 5 (auth, analyst decisions, polished dashboard).
 
 ## What this project is
 
@@ -242,6 +242,32 @@ MEASURED:
 - Replay idempotency rests on three unique constraints: `batch_runs.timestep`,
   `risk_scores(tx_id, model_version)`, `case_reports.tx_id`. Cases that fall out
   of the queue are deleted UNLESS reviewed.
+
+## Phase 4 findings
+
+- **Confidence must not sum linearly across items of one kind.** The first real
+  run saturated at 1.0 for every case (5 similarity items x 0.25). Now noisy-OR
+  per kind, capped at the kind's weight, so diverse corroboration beats
+  repetition. Version string is `w1-noisyor+t0.35`.
+- **Retrieval relevance is the pattern filter's job, not the vector's.** A
+  cosine cutoff silently returned ZERO chunks for `network_association` (the tag
+  never appears in the prose). Cutoff now only drops anti-correlated chunks.
+- **Retrieval MUST key off `structural_similarity` + `graph_model_corroboration`,
+  not just heuristics** — otherwise the Phase 3 degree-1 queue cites nothing.
+- **Corpus and query embeddings must come from the same model.** Enforced by
+  `typology_references.embedding_model`; retrieval raises on mismatch. Re-ingest
+  after switching LLM_PROVIDER.
+- **The stub embedder is a hashing vectoriser, not noise** — real lexical
+  similarity, deterministic, so the keyless path is genuinely exercised.
+- `StubProvider.narrate()` returns None -> caller uses the rule-built template.
+  ONE fallback path covers both "no key" and "validation failed", so the
+  fallback is exercised constantly instead of rotting.
+- Deterministic + retrieved state are FROZEN dataclasses. The LLM physically
+  cannot overwrite a measurement.
+- `agent` extra (langgraph, google-genai) is worker-only, like `gnn`. The API
+  still has no torch/xgboost/numpy/langgraph.
+- Only `typology_reference` evidence is replaced on re-investigation; Phase 3
+  evidence is never touched (test compares before/after).
 
 ## Phase end protocol
 
