@@ -1,8 +1,8 @@
 # CLAUDE.md — Argus working notes
 
 Source of truth for requirements: `docs/prd.md`. This file is *how* we build it.
-Status: **Phase 1 complete** — foundation and infrastructure. Next: Phase 2 (data
-ingest, temporal splits, model comparison).
+Status: **Phase 2 complete** — data ingest, temporal splits, both model families,
+embeddings in pgvector. Next: Phase 3 (batch replay + risk queue via Celery).
 
 ## What this project is
 
@@ -136,12 +136,19 @@ torch + PyG from the CPU-only index). Compose runs postgres, redis, api, worker.
 
 ## Open decisions
 
-All Phase 0 questions Q1-Q7 are RESOLVED (see Phase 0.1). Remaining unknowns are
-empirical, to be measured in Phase 2, not decided by discussion:
+All Phase 0 questions Q1-Q7 are RESOLVED. The Phase 2 empirical unknowns are now
+MEASURED:
 
-- cross-timestep edge count in Elliptic (affects the flagged-neighbour tool)
-- whether GraphSAGE clears the pre-registered promotion bar
-- actual Gemini free-tier rate limits under batch investigation load
+- **Cross-timestep edges in Elliptic: ZERO** (all 234,355 edges are intra-timestep).
+  Consequences: (a) graph-based temporal leakage is structurally impossible;
+  (b) the "illicit neighbour from an earlier timestep" channel is ALWAYS EMPTY, so
+  the Phase 4 flagged-neighbour tool must rest on same-batch model-flagged
+  neighbours + analyst-confirmed reviews; (c) GraphSAGE embedding similarity is the
+  ONLY mechanism that reaches across timesteps into labelled history. This is what
+  justifies keeping the GNN.
+- **GraphSAGE did NOT clear the promotion bar** (-31.9 recall points). XGBoost
+  `xgb-all166` is the primary scorer. GraphSAGE stays in the investigation layer.
+- Gemini free-tier limits under batch load: still unmeasured, deferred to Phase 4.
 
 ## Decisions already made (no need to ask)
 
@@ -176,6 +183,31 @@ empirical, to be measured in Phase 2, not decided by discussion:
   compose stack is down, so bare `pytest` works anywhere.
 - Docker: `api` target has no torch/xgboost. Do not import ML libraries from
   `argus.api.*` or `argus.core.*` — that would break the API image.
+
+## Phase 2 findings that constrain later phases
+
+- **Threshold recalibration is mandatory.** A threshold frozen on validation
+  collapses test recall from 0.374 to 0.063, because Elliptic's score distribution
+  shifts hard in the later timesteps (dark-market shutdown ~ts43). Phase 3's
+  `replay_batch` MUST rank the batch and take the top 1%, not apply a stored
+  score cutoff. The stored threshold is a fallback/reference only.
+- **pgvector HNSW post-filters.** A kNN query filtered to the reference pool
+  (~13% of rows) returns ZERO rows with default settings. Phase 4 must
+  `SET hnsw.iterative_scan = relaxed_order` (verified identical to exact scan) or
+  build a partial index. This bit once already; do not rediscover it.
+- **Alert budget = exact top-k, never `score >= threshold`.** Boosted probabilities
+  saturate; threshold comparison gave one variant 1.53% of the batch vs another's
+  1.00% and made the comparison meaningless. Use `evaluate.alerts_at_budget`.
+- **Feature dims are 93 / 165, not 94 / 166.** The literature counts the timestep
+  as the first local feature. We drop it, so `local94`->93 cols, `all166`->165.
+  The names keep the dataset's terminology; the dims are what the code uses.
+- **MLflow file store is dead.** `./mlruns` refuses to open (maintenance mode).
+  Tracking uses `sqlite:///mlflow.db`. MLflow lives in the optional `train` extra
+  and is NOT in the worker image.
+- Dataset comes from `data.pyg.org/datasets/elliptic` (no Kaggle account needed).
+  `python -m argus.ml.cli download|inspect|ingest|train|embed`.
+- Local DB after ingest + embeddings: ~384 MB. The hosted Supabase subset must
+  drop the `features` arrays (they are 168 MB of the total) -- API never reads them.
 
 ## Phase end protocol
 

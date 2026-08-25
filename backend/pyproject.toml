@@ -21,7 +21,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Worker-only. Installed in the `worker` Docker target and for local training.
+# Worker runtime: scoring and embedding need these, so they go in the
+# `worker` Docker target.
 gnn = [
     "torch>=2.5",
     "torch-geometric>=2.6",
@@ -30,6 +31,10 @@ gnn = [
     "pandas>=2.2",
     "scikit-learn>=1.5",
 ]
+# Training only. MLflow is an experiment record, not a runtime dependency:
+# the worker loads an exported artifact and never talks to a tracking server,
+# so keeping this out of `gnn` keeps it out of the worker image.
+train = ["mlflow>=2.17"]
 
 [dependency-groups]
 dev = [
@@ -70,4 +75,5 @@ testpaths = ["tests"]
 addopts = "-q"
 markers = [
     "integration: requires a live Postgres and Redis (docker compose up)",
+    "dataset: requires the downloaded Elliptic dataset",
 ]

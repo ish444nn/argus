@@ -20,9 +20,14 @@ Two ideas sit at the centre, and both are tested rather than assumed:
 Full requirements: [docs/prd.md](docs/prd.md). Architecture decisions and
 implementation rules: [CLAUDE.md](CLAUDE.md).
 
-> **Status: Phase 1 — foundation.** Infrastructure, schema and health checks exist.
-> The ML pipeline, retrieval corpus, investigation agent and analyst dashboard are
-> not built yet.
+> **Status: Phase 2 — models.** Infrastructure, schema, the Elliptic ingest, both
+> model families and the transaction embeddings exist. The retrieval corpus,
+> investigation agent and analyst dashboard are not built yet.
+>
+> The model comparison landed on the baseline: `xgb-all166` reaches 0.374 recall
+> at a 1% alert budget on the held-out range against GraphSAGE's 0.054, so
+> XGBoost is the primary scorer and GraphSAGE serves the investigation layer.
+> Details and method in [docs/modeling.md](docs/modeling.md).
 
 ## Repository structure
 
@@ -33,6 +38,7 @@ backend/            One Python package, one pyproject
     core/           Configuration and logging
     db/             SQLAlchemy models, enums, session
     jobs/           Celery app and tasks
+    ml/             Dataset, splits, features, graph, models, evaluation
   alembic/          Migrations
   tests/
 frontend/           Vite + React + TypeScript + Tailwind + TanStack Query
@@ -135,6 +141,7 @@ Backend, from `backend/`:
 ```bash
 uv sync                              # core + dev dependencies
 uv sync --extra gnn                  # add torch / PyG / xgboost
+uv sync --extra gnn --extra train    # ...plus MLflow, for training
 uv run ruff check . && uv run ruff format --check .
 uv run pytest                        # unit tests
 uv run pytest -m integration         # needs the compose stack up
@@ -152,6 +159,28 @@ npm run dev
 
 Tests marked `integration` need a live Postgres and Redis; they skip themselves when
 the stack is not running, so a plain `uv run pytest` works anywhere.
+
+## Machine learning
+
+```bash
+cd backend
+uv sync --extra gnn --extra train
+
+python -m argus.ml.cli download   # Elliptic from the PyG mirror, ~150 MB, once
+python -m argus.ml.cli inspect    # dataset shape and split sizes
+python -m argus.ml.cli ingest     # -> Postgres   (~47 s)
+python -m argus.ml.cli train      # all three models, CPU  (~3 min)
+python -m argus.ml.cli embed      # -> pgvector   (~5 min)
+
+mlflow ui --backend-store-uri sqlite:///../mlflow.db   # experiment history
+```
+
+The raw dataset (~950 MB once extracted) and the trained model binaries are
+git-ignored; each model's `metadata.json` is committed so any score stays
+traceable to the run that produced it.
+
+See [docs/modeling.md](docs/modeling.md) for the split, the leakage controls, the
+alert-budget metric and the results.
 
 ## Database schema
 
