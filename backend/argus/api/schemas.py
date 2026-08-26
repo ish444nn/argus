@@ -203,3 +203,17 @@ class AvailableBatches(BaseModel):
     replayable_range: list[int]
     alert_budget: float
     batches: list[BatchAvailability]
+
+
+class BatchRemoved(BaseModel):
+    """The result of undoing a replay, reported rather than assumed.
+
+    `reviewed_retained` is the number the analyst most needs to see: a removal
+    deliberately does not delete cases someone has already decided on, so the
+    count of what survived is part of the answer, not a footnote.
+    """
+
+    timestep: int
+    cases_removed: int
+    reviewed_retained: int
+    scores_removed: int

@@ -1,5 +1,4 @@
 import type { CaseDetail } from "../api/client";
-import { evidenceMeta } from "../evidence";
 import { Meter } from "./ui";
 
 /**
@@ -72,13 +71,9 @@ export function Signals({ detail }: { detail: CaseDetail }) {
   // metadata, because a case has evidence — and therefore a confidence — long
   // before anyone presses "Run investigation", and the panel has to explain
   // the number at that point too.
-  const kinds = new Set(detail.evidence.map((item) => item.kind));
-  const contributingKinds = [...kinds].filter(
-    (kind) => evidenceMeta(kind).countsTowardConfidence,
-  ).length;
-  const excluded = [...kinds].filter(
-    (kind) => !evidenceMeta(kind).countsTowardConfidence,
-  ).length;
+  const contributingKinds = new Set(
+    detail.evidence.filter((item) => item.weight > 0).map((item) => item.kind),
+  ).size;
 
   return (
     <section aria-label="Case signals">
@@ -125,26 +120,13 @@ export function Signals({ detail }: { detail: CaseDetail }) {
           role="How strongly the evidence Argus gathered supports the case. Not a model score."
           meter={{ value: confidence, colour: "var(--cited)" }}
           detail={
-            contributingKinds > 0 ? (
-              <>
-                From {contributingKinds} contributing kind
-                {contributingKinds === 1 ? "" : "s"}
-                {excluded > 0 && <> · {excluded} not counted</>}
-              </>
-            ) : (
-              "No supporting evidence found."
-            )
+            contributingKinds > 0
+              ? `From ${contributingKinds} kind${contributingKinds === 1 ? "" : "s"} of evidence`
+              : "No supporting evidence found."
           }
           title="Computed from the deterministic evidence on this case as soon as it is gathered — before any investigation runs — and independent of both model scores."
         />
       </div>
-
-      <p className="mt-2 text-[11px] leading-snug text-[var(--text-3)]">
-        Three independent signals.{" "}
-        <span className="text-[var(--text-2)]">Only the risk score selects work</span> —
-        the second opinion and the evidence confidence describe a case that has already
-        been selected.
-      </p>
     </section>
   );
 }

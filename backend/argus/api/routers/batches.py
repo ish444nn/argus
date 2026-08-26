@@ -18,9 +18,11 @@ from argus.api.deps import SessionDep, SettingsDep, dispatch
 from argus.api.schemas import (
     AvailableBatches,
     BatchAvailability,
+    BatchRemoved,
     BatchRunOut,
     ReplayDispatched,
 )
+from argus.services import batches as batch_service
 from argus.services import queue as queue_service
 
 router = APIRouter(prefix="/api/batches", tags=["batches"])
@@ -95,3 +97,27 @@ def get_batch(timestep: int, session: SessionDep) -> BatchRunOut:
     if run is None:
         raise HTTPException(status_code=404, detail=f"time step {timestep} has not been replayed")
     return BatchRunOut(**run)
+
+
+@router.delete("/{timestep}", response_model=BatchRemoved)
+def remove_batch(timestep: int, session: SessionDep, settings: SettingsDep) -> BatchRemoved:
+    """Undo a batch's replay, returning the time step to the available list.
+
+    Synchronous, unlike replay: this is a scoped delete rather than minutes of
+    scoring, so making it a job would mean a worker had to be running to tidy
+    up after one that already ran.
+
+    Reviewed cases are kept -- see `services.batches.remove_batch`.
+    """
+    if not settings.replay_min_timestep <= timestep <= settings.replay_max_timestep:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"time step {timestep} is outside the replayable range "
+                f"{settings.replay_min_timestep}-{settings.replay_max_timestep}."
+            ),
+        )
+    if queue_service.get_batch_run(session, timestep) is None:
+        raise HTTPException(status_code=404, detail=f"time step {timestep} has not been replayed")
+
+    return BatchRemoved(**batch_service.remove_batch(session, timestep).to_dict())

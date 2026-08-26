@@ -192,9 +192,19 @@ measuring its own reading.
 **`graph_model_corroboration`** is GraphSAGE's own probability for the
 transaction. Folding one model's score into "how much evidence is there" makes
 the two indistinguishable, and a case could then look well-supported on nothing
-but a second model agreeing with the first. It is still recorded, still shown as
-the *second opinion*, and still steers typology retrieval — it just cannot raise
-confidence.
+but a second model agreeing with the first.
+
+It is not evidence at all, and the product says so in one place rather than
+five: `agent.evidence.OBSERVED_KINDS` holds it out, and everything that counts
+or lists evidence reads that set — the overview chart, the queue's evidence
+column, `GET /cases/{id}/evidence`, and the ids a narrative is allowed to cite
+(`DeterministicEvidence.evidence_ids`). It reaches the case page as
+`graph_score`, one of the three signals.
+
+The row still exists. It carries provenance, and typology retrieval keys off it
+(`model_risk_scoring`). The prompt still states the score as a fact about the
+transaction, so a report can say the models agree — it just cannot cite an id
+the evidence list does not show.
 
 The distinction that has to survive: **`structural_similarity` also comes from
 GraphSAGE and still counts.** It is a measurement made *using* the embeddings —

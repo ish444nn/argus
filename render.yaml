@@ -60,10 +60,12 @@ services:
   # --- Frontend -----------------------------------------------------------
   # A static bundle. No Docker: Render builds it from source, which is both
   # free and faster than shipping an image to serve seven files.
+  # No `plan` here: a static site has no plan to pick, and naming one is
+  # rejected with `no such plan free for service type web`. Only the Docker
+  # web service above takes a plan.
   - type: web
     name: argus-web
     runtime: static
-    plan: free
     buildCommand: cd frontend && npm ci && npm run build
     staticPublishPath: ./frontend/dist
     autoDeploy: true

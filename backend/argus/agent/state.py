@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from argus.agent.evidence import OBSERVED_KINDS
 from argus.agent.schemas import Narrative
 
 
@@ -87,8 +88,21 @@ class DeterministicEvidence:
         return [item for item in self.evidence if item.kind == kind]
 
     @property
+    def observed(self) -> list[EvidenceRecord]:
+        """The records that count as findings about the transaction.
+
+        The graph model's own score is held out. It is a signal reported
+        alongside the risk score, and the case page shows it there rather than
+        in the evidence list -- so a narrative citing it would point at an id
+        the reader cannot find. It is still in `evidence`, because typology
+        retrieval keys off it.
+        """
+        return [item for item in self.evidence if item.kind in OBSERVED_KINDS]
+
+    @property
     def evidence_ids(self) -> set[int]:
-        return {item.id for item in self.evidence}
+        """The ids a narrative is allowed to cite."""
+        return {item.id for item in self.observed}
 
 
 @dataclass(frozen=True)

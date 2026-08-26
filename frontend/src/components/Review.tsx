@@ -182,11 +182,6 @@ export function Review({ caseId }: { caseId: number }) {
             </ul>
           </details>
         )}
-
-        <p className="border-t border-[var(--line)] pt-2 text-[11px] text-[var(--text-3)]">
-          Decisions are attributed to the seeded demo analyst. Sign-in is not built
-          yet.
-        </p>
       </div>
     </Panel>
   );

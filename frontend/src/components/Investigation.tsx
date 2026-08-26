@@ -10,9 +10,8 @@ import { Badge, Note, Panel, ProvLabel, Skeleton } from "./ui";
  * was quoted from a published source. Each wears its provenance rail, so a
  * reader never has to work out which they are looking at.
  *
- * Confidence sits with the model panel but is labelled as measured, because
- * it is computed from evidence rather than stated by the model — that
- * distinction is easy to lose and expensive to lose.
+ * Confidence is not repeated here. It is a signal, reported once at the top of
+ * the page with the two model scores, and an investigation does not change it.
  */
 
 /**
@@ -93,10 +92,8 @@ export function Assessment({ detail }: { detail: CaseDetail }) {
             </div>
           ) : (
             <Note title="No written assessment yet">
-              The evidence is already gathered and its confidence is shown above.
-              Running an investigation adds the parts that need a language model:
-              it retrieves matching AML typology passages and writes a cited
-              assessment. It does not change the evidence or its confidence.
+              The evidence is gathered. Running an investigation retrieves the
+              matching AML typology passages and writes a cited assessment.
               <div className="mt-3">
                 <button
                   className="btn btn-primary"
@@ -134,22 +131,6 @@ export function Assessment({ detail }: { detail: CaseDetail }) {
         }
       >
         <div className="panel-body space-y-4">
-          {/* Confidence is measured, not model-stated -- labelled as such. */}
-          <div className="prov prov-measured">
-            <ProvLabel origin="measured">Evidence confidence</ProvLabel>
-            <p className="mt-2 text-[var(--text-2)]">
-              Unchanged by this investigation: it is a function of the deterministic
-              evidence, which the narrative describes rather than adds to.
-            </p>
-            {meta.confidence_contributions && (
-              <p className="num mt-2 text-[11px] text-[var(--text-3)]">
-                {Object.entries(meta.confidence_contributions)
-                  .map(([kind, value]) => `${kind.replace(/_/g, " ")} ${value.toFixed(3)}`)
-                  .join("   ")}
-              </p>
-            )}
-          </div>
-
           {/* What the model wrote. */}
           <div className={`prov ${fromModel ? "prov-model" : "prov-measured"}`}>
             <ProvLabel

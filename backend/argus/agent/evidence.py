@@ -52,6 +52,26 @@ EVIDENCE_WEIGHTS: dict[str, float] = {
 }
 WEIGHTS_VERSION = "w1"
 
+# The kinds that count as *observed evidence* -- what the case page lists under
+# "Observed evidence" and what every evidence count in the product means.
+#
+# `graph_model_corroboration` is deliberately absent. It is a second model's
+# opinion of this transaction: a signal, shown beside the risk score and the
+# confidence as one of the three the product reports, but not a finding about
+# the transaction. Listing it as evidence invited exactly the confusion that
+# giving it a zero weight was meant to end -- it appeared in the evidence list
+# needing a label explaining why it did not count.
+#
+# The rows still exist. They carry provenance and they steer typology retrieval
+# (`model_risk_scoring`); only their classification changed.
+#
+# Plain `str`, not enum members: these are bound straight into SQL as an array
+# parameter, and psycopg adapts a str it recognises rather than a subclass it
+# has to guess at.
+OBSERVED_KINDS: tuple[str, ...] = tuple(
+    str(kind) for kind in EVIDENCE_WEIGHTS if kind != EvidenceKind.GRAPH_MODEL_CORROBORATION
+)
+
 
 @dataclass
 class EvidenceDraft:

@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { getOverview, type Overview as OverviewData } from "../api/client";
 import { BUDGETS, budgetLabel, DEFAULT_BUDGET } from "../budget";
 import { BatchReplay } from "../components/BatchReplay";
-import { evidenceMeta, TYPOLOGY_COLOURS, TYPOLOGY_LABELS } from "../evidence";
+import { evidenceMeta } from "../evidence";
 import { Distribution, Note, Panel, Skeleton, Stat } from "../components/ui";
 
 /**
@@ -34,8 +34,6 @@ function RiskBands({ data }: { data: OverviewData }) {
   const max = Math.max(...data.risk_distribution.map((b) => b.count), 1);
   const total = data.risk_distribution.reduce((sum, b) => sum + b.count, 0);
   if (!total) return <p className="text-[var(--text-3)]">Nothing scored yet</p>;
-
-  const atDefault = data.alert_budget === data.default_alert_budget;
 
   return (
     <div>
@@ -73,49 +71,12 @@ function RiskBands({ data }: { data: OverviewData }) {
           </li>
         ))}
       </ul>
-      <p className="mt-3 border-t border-[var(--line)] pt-2 text-[11px] leading-snug text-[var(--text-3)]">
+      <p
+        className="mt-3 border-t border-[var(--line)] pt-2 text-[11px] text-[var(--text-3)]"
+        title="Solid: selected into the queue at the current budget. Faint: scored, not selected."
+      >
         <span className="num text-[var(--text-2)]">{total.toLocaleString()}</span>{" "}
-        transactions scored. The solid segment is what a{" "}
-        <span className="num">{pct(data.alert_budget)}</span> budget selects
-        {atDefault ? " (the default)" : ""}; the faint one is everything else in the
-        band. The cut falls inside the top band, so a high score is not by itself
-        enough to reach the queue.
-      </p>
-    </div>
-  );
-}
-
-function BudgetBar({ data }: { data: OverviewData }) {
-  const realised = data.batches.realised_alert_rate;
-  if (realised === null) return null;
-  // Scale the bar so the configured budget sits at 70% of the width — the
-  // point is how close realised sits to budget, not its absolute magnitude.
-  const scale = data.default_alert_budget / 0.7;
-  const width = Math.min(100, (realised / scale) * 100);
-  const budgetAt = 70;
-
-  return (
-    <div>
-      <div className="relative h-6 border border-[var(--line)] bg-[var(--surface-2)]">
-        <div
-          className="h-full"
-          style={{ width: `${width}%`, background: "color-mix(in oklab, var(--measured) 40%, transparent)" }}
-        />
-        <div
-          className="absolute inset-y-0 border-l border-dashed"
-          style={{ left: `${budgetAt}%`, borderColor: "var(--text-2)" }}
-        >
-          <span className="absolute -top-0.5 left-1.5 whitespace-nowrap text-[10px] text-[var(--text-2)]">
-            budget {pct(data.default_alert_budget)}
-          </span>
-        </div>
-      </div>
-      <p className="mt-2 text-[11px] text-[var(--text-3)]">
-        <span className="num text-[var(--text-2)]">{pct(realised)}</span> of scored
-        transactions were alerted across {data.batches.runs} batch
-        {data.batches.runs === 1 ? "" : "es"}. The budget is applied by ranking each
-        batch and taking its top slice, so the realised rate tracks it rather than
-        drifting.
+        scored · selected / in band
       </p>
     </div>
   );
@@ -131,79 +92,90 @@ function BudgetControl({
   data: OverviewData;
 }) {
   const preview = data.budget_preview;
-  const unselected = preview.high_scoring_unselected;
+  const index = Math.max(0, BUDGETS.indexOf(budget));
+  const defaultIndex = BUDGETS.indexOf(DEFAULT_BUDGET);
 
   return (
     <div>
-      <div
-        className="flex flex-wrap gap-1"
-        role="radiogroup"
-        aria-label="Alert budget"
-      >
-        {BUDGETS.map((option) => {
-          const active = option === budget;
-          return (
-            <button
-              key={option}
-              role="radio"
-              aria-checked={active}
-              className="btn"
-              onClick={() => onChange(option)}
-              style={
-                active
-                  ? {
-                      borderColor: "var(--measured)",
-                      background:
-                        "color-mix(in oklab, var(--measured) 18%, var(--surface-2))",
-                      color: "var(--text)",
-                    }
-                  : undefined
-              }
-            >
-              <span className="num">{budgetLabel(option)}</span>
-              {option === DEFAULT_BUDGET && (
-                <span className="ml-1 text-[10px] text-[var(--text-3)]">default</span>
-              )}
-            </button>
-          );
-        })}
+      <div className="flex items-baseline justify-between">
+        <p className="num text-[1.5rem] leading-none text-[var(--text)]">
+          {budgetLabel(budget)}
+        </p>
+        <p className="text-[11px] text-[var(--text-3)]">
+          <span className="num text-[var(--text-2)]">
+            {preview.selected.toLocaleString()}
+          </span>{" "}
+          of {preview.scored.toLocaleString()} selected
+        </p>
       </div>
 
-      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-[12px]">
-        <dt className="text-[var(--text-3)]">Selected at {pct(budget)}</dt>
-        <dd className="num text-right text-[var(--text)]">
-          {preview.selected.toLocaleString()}
-        </dd>
-        <dt className="text-[var(--text-3)]">Scoring ≥ 0.99</dt>
+      <input
+        type="range"
+        className="range mt-3"
+        min={0}
+        max={BUDGETS.length - 1}
+        step={1}
+        value={index}
+        onChange={(e) => onChange(BUDGETS[Number(e.target.value)])}
+        aria-label="Alert budget"
+        aria-valuetext={`${budgetLabel(budget)}${budget === DEFAULT_BUDGET ? ", the default" : ""}`}
+        title="How much of each scored batch enters the queue. Re-selects from the existing scores; it does not retrain the model or change a risk score."
+      />
+
+      {/* Ticks double as the scale and the affordance: seven stops, and the
+          canonical one named under its own mark rather than floated near it. */}
+      <div className="mt-1.5 flex items-start justify-between">
+        {BUDGETS.map((option, i) => (
+          <button
+            key={option}
+            className="group flex flex-col items-center gap-1 py-0.5"
+            onClick={() => onChange(option)}
+            tabIndex={-1}
+            aria-hidden
+          >
+            <span
+              className="h-1.5 w-px"
+              style={{
+                background:
+                  i === index
+                    ? "var(--measured)"
+                    : i === defaultIndex
+                      ? "var(--text-3)"
+                      : "var(--line-2)",
+              }}
+            />
+            <span
+              className="num text-[10px] leading-none transition-colors group-hover:text-[var(--text-2)]"
+              style={{ color: i === index ? "var(--text)" : "var(--text-3)" }}
+            >
+              {budgetLabel(option)}
+            </span>
+            {i === defaultIndex && (
+              <span className="text-[9px] uppercase leading-none tracking-[0.08em] text-[var(--text-3)]">
+                default
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <dl className="mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t border-[var(--line)] pt-2.5 text-[12px]">
+        <dt className="text-[var(--text-3)]">Scoring &ge; 0.99</dt>
         <dd className="num text-right text-[var(--text-2)]">
           {preview.high_scoring.toLocaleString()}
         </dd>
-        <dt className="text-[var(--text-3)]">…of those, not selected</dt>
+        <dt className="text-[var(--text-3)]" title="They score as high as the queue's, but the budget has no room for them.">
+          &hellip;left out of the queue
+        </dt>
         <dd
           className="num text-right"
-          style={{ color: unselected ? "var(--risk-3)" : "var(--text-2)" }}
+          style={{
+            color: preview.high_scoring_unselected ? "var(--risk-3)" : "var(--text-2)",
+          }}
         >
-          {unselected.toLocaleString()}
+          {preview.high_scoring_unselected.toLocaleString()}
         </dd>
       </dl>
-
-      <p className="mt-3 border-t border-[var(--line)] pt-2 text-[11px] leading-snug text-[var(--text-3)]">
-        The budget is a <span className="text-[var(--text-2)]">capacity</span> decision,
-        not a model one. Changing it re-selects the top slice of each already-scored
-        batch; it does not retrain XGBoost and does not move a single risk score.
-        {unselected > 0 && (
-          <>
-            {" "}
-            Right now{" "}
-            <span className="num text-[var(--text-2)]">
-              {unselected.toLocaleString()}
-            </span>{" "}
-            transactions score ≥ 0.99 and still fall outside the queue — that is what
-            an alert budget costs, and it is why the number is chosen deliberately
-            rather than hidden.
-          </>
-        )}
-      </p>
     </div>
   );
 }
@@ -294,10 +266,28 @@ export function Overview() {
                 />
               </dl>
 
-              <div className="mt-6 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
+              {/* Bento.
+                  Twelve columns, and each card takes the width its content
+                  actually needs rather than a third because there are three of
+                  them. The risk distribution has five labelled bands and wants
+                  the room; the decisions card is three rows and does not. Two
+                  rows of unequal spans read as a composition; six identical
+                  thirds read as a form. */}
+              <div className="mt-6 grid grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-12">
+                <Panel
+                  title="Risk distribution"
+                  meta={`selected at ${pct(budget)}`}
+                  className="xl:col-span-6"
+                >
+                  <div className="panel-body">
+                    <RiskBands data={data} />
+                  </div>
+                </Panel>
+
                 <Panel
                   title="Alert budget"
-                  meta={budget === DEFAULT_BUDGET ? "1% — canonical" : "exploring"}
+                  meta={budget === DEFAULT_BUDGET ? "canonical" : "exploring"}
+                  className="xl:col-span-3"
                 >
                   <div className="panel-body">
                     <BudgetControl budget={budget} onChange={setBudget} data={data} />
@@ -305,23 +295,14 @@ export function Overview() {
                 </Panel>
 
                 <Panel
-                  title="Risk distribution"
-                  meta={`selected at ${pct(budget)}`}
+                  title="Investigation state"
+                  meta="case lifecycle"
+                  className="xl:col-span-3"
                 >
-                  <div className="panel-body">
-                    <RiskBands data={data} />
-                  </div>
-                </Panel>
-
-                <Panel title="Investigation state" meta="case lifecycle">
                   <div className="panel-body">
                     <Distribution
                       items={[
-                        {
-                          label: "Report written",
-                          count: data.cases.ready,
-                          colour: "var(--ok)",
-                        },
+                        { label: "Report written", count: data.cases.ready, colour: "var(--ok)" },
                         {
                           label: "Running",
                           count: data.cases.investigating,
@@ -332,61 +313,49 @@ export function Overview() {
                           count: data.cases.queued,
                           colour: "var(--line-2)",
                         },
-                        {
-                          label: "Failed",
-                          count: data.cases.failed,
-                          colour: "var(--bad)",
-                        },
+                        { label: "Failed", count: data.cases.failed, colour: "var(--bad)" },
                       ]}
                     />
                     {data.cases.ready > 0 && (
                       <p className="mt-3 border-t border-[var(--line)] pt-2 text-[11px] text-[var(--text-3)]">
-                        Of the written reports,{" "}
                         <span className="num text-[var(--model)]">
                           {data.cases.model_written}
                         </span>{" "}
-                        came from the model and{" "}
+                        written by the model,{" "}
                         <span className="num text-[var(--text-2)]">
                           {data.cases.rule_written}
                         </span>{" "}
-                        were built by rule.
+                        by rule.
                       </p>
                     )}
                   </div>
                 </Panel>
-              </div>
 
-              <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
-                <Panel title="Evidence gathered" meta="across all cases">
+                <div className="xl:col-span-5">
+                  <BatchReplay />
+                </div>
+
+                <Panel
+                  title="Evidence gathered"
+                  meta="across all cases"
+                  className="xl:col-span-4"
+                >
                   <div className="panel-body">
                     <Distribution
                       items={Object.entries(data.evidence).map(([kind, count]) => {
                         const meta = evidenceMeta(kind);
-                        return {
-                          label: meta.label,
-                          count,
-                          colour: `var(--${meta.origin})`,
-                        };
+                        return { label: meta.label, count, colour: meta.colour };
                       })}
                       emptyLabel="No evidence gathered yet"
                     />
                   </div>
                 </Panel>
 
-                <Panel title="Typology assessment" meta="model-assigned">
-                  <div className="panel-body">
-                    <Distribution
-                      items={Object.entries(data.typologies).map(([key, count]) => ({
-                        label: TYPOLOGY_LABELS[key] ?? key,
-                        count,
-                        colour: TYPOLOGY_COLOURS[key] ?? "var(--line-2)",
-                      }))}
-                      emptyLabel="No cases investigated yet"
-                    />
-                  </div>
-                </Panel>
-
-                <Panel title="Analyst decisions" meta="latest per case">
+                <Panel
+                  title="Analyst decisions"
+                  meta="latest per case"
+                  className="xl:col-span-3"
+                >
                   <div className="panel-body">
                     <Distribution
                       items={[
@@ -408,22 +377,9 @@ export function Overview() {
                       ]}
                       emptyLabel="No decisions recorded yet"
                     />
-                    <Link
-                      to="/queue?undecided=1"
-                      className="btn mt-3 w-full !justify-center"
-                    >
+                    <Link to="/queue?undecided=1" className="btn mt-3 w-full !justify-center">
                       Review the queue
                     </Link>
-                  </div>
-                </Panel>
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
-                <BatchReplay />
-
-                <Panel title="Realised alert rate" meta="what was actually queued">
-                  <div className="panel-body">
-                    <BudgetBar data={data} />
                   </div>
                 </Panel>
               </div>

@@ -299,3 +299,63 @@ def test_query_is_deterministic():
 def test_no_evidence_produces_no_patterns():
     query = retrieval.build_query([])
     assert query.patterns == []
+
+
+# --------------------------------------------------------------------------
+# What a narrative may cite
+# --------------------------------------------------------------------------
+
+
+def deterministic(*records) -> object:
+    from argus.agent.state import DeterministicEvidence
+
+    return DeterministicEvidence(
+        case_id=1,
+        tx_id=2,
+        timestep=35,
+        risk_score=0.99,
+        model_version="xgb-all166",
+        queue_rank=1,
+        graph_score=0.98,
+        in_degree=1,
+        out_degree=1,
+        neighbour_count=2,
+        chain_length=1,
+        same_batch_neighbours=2,
+        flagged_neighbours=0,
+        evidence=list(records),
+    )
+
+
+def test_a_narrative_may_not_cite_the_second_opinion():
+    """The graph score is a signal, not a finding.
+
+    It is reported next to the risk score and the confidence, and the case
+    page's evidence list does not contain it -- so a claim citing its id would
+    point the reader at something they cannot find. Holding it out of the
+    citable set is what keeps the report traceable.
+    """
+    similarity = record(EvidenceKind.STRUCTURAL_SIMILARITY, 0.9, 1)
+    graph = record(EvidenceKind.GRAPH_MODEL_CORROBORATION, 0.98, 2)
+    state = deterministic(similarity, graph)
+
+    assert state.evidence_ids == {1}
+    assert [item.id for item in state.observed] == [1]
+    # ...but the row is still there, because typology retrieval keys off it.
+    assert len(state.evidence) == 2
+    assert "model_risk_scoring" in retrieval.build_query(state.evidence).patterns
+
+
+def test_the_rule_built_narrative_cites_only_what_the_page_shows():
+    from argus.agent.prompts import build_template_narrative
+    from argus.agent.state import RetrievedKnowledge
+
+    state = deterministic(
+        record(EvidenceKind.STRUCTURAL_SIMILARITY, 0.9, 1),
+        record(EvidenceKind.GRAPH_MODEL_CORROBORATION, 0.98, 2),
+    )
+    narrative = build_template_narrative(state, RetrievedKnowledge())
+
+    cited = {i for claim in narrative.claims for i in claim.evidence_ids}
+    assert cited <= state.evidence_ids, "the template cited an id the page does not list"
+    assert 2 not in cited

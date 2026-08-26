@@ -3,43 +3,27 @@ import { evidenceMeta } from "../evidence";
 import { Meter, Note, ProvLabel } from "./ui";
 
 /**
- * Observed evidence.
+ * Observed evidence — what Argus found out about the transaction.
  *
  * Grouped by kind rather than listed flat, because the groups answer different
  * questions and an analyst reads them in a different order: what does this
- * resemble, what shape is it, who is it connected to, what does the other
- * model think.
+ * resemble, what shape is it, who is it connected to.
  *
- * Every item shows the transaction or rule it came from and its contribution
- * to confidence. That traceability is the point of the evidence model, so it
- * sits on the face of each row rather than behind a disclosure.
+ * The graph model's own score is not here. It is a signal, reported with the
+ * risk score and the confidence at the top of the page; a model's opinion of
+ * the transaction is not a finding about it. Typology passages are not here
+ * either — they are quoted in full in their own panel.
+ *
+ * Every row shows the transaction or rule it came from and its contribution to
+ * confidence. That traceability is the point of the evidence model, so it sits
+ * on the face of each row rather than behind a disclosure.
  */
 
-const GROUPS: { kinds: string[]; title: string; blurb: string }[] = [
-  {
-    kinds: ["structural_similarity"],
-    title: "Historical similarity",
-    blurb:
-      "Transactions from the training period whose network position the graph model represents the same way. A measurement made using the model, not the model's opinion of this transaction — which is why it counts towards confidence and the second opinion does not.",
-  },
-  {
-    kinds: ["heuristic"],
-    title: "Structural patterns",
-    blurb:
-      "Network shapes computed from the graph. Thresholds come from the whole dataset's degree distribution.",
-  },
-  {
-    kinds: ["flagged_neighbour", "confirmed_neighbour"],
-    title: "Counterparties",
-    blurb:
-      "Connected transactions the system already distrusts, and why it distrusts them.",
-  },
-  {
-    kinds: ["graph_model_corroboration"],
-    title: "Second opinion",
-    blurb:
-      "The neighbourhood-aware model's independent score, quoted for comparison. It decides neither the queue nor the evidence confidence.",
-  },
+const GROUPS: { kinds: string[]; title: string }[] = [
+  { kinds: ["structural_similarity"], title: "Historical similarity" },
+  { kinds: ["heuristic"], title: "Structural patterns" },
+  { kinds: ["confirmed_neighbour"], title: "Confirmed counterparties" },
+  { kinds: ["flagged_neighbour"], title: "Flagged counterparties" },
 ];
 
 function Row({ item }: { item: EvidenceItem }) {
@@ -71,21 +55,14 @@ function Row({ item }: { item: EvidenceItem }) {
             )}
           </p>
         </div>
-        <div className="shrink-0 text-right">
-          <Meter
-            value={item.strength}
-            width={56}
-            colour={meta.countsTowardConfidence ? undefined : "var(--model)"}
-          />
-          {meta.countsTowardConfidence ? (
-            <p className="num mt-1 text-[11px] text-[var(--text-3)]">
-              {item.strength.toFixed(2)} × {item.weight.toFixed(2)}
-            </p>
-          ) : (
-            <p className="mt-1 text-[11px] text-[var(--text-3)]">
-              <span className="num">{item.strength.toFixed(2)}</span> · not counted
-            </p>
-          )}
+        <div
+          className="shrink-0 text-right"
+          title="Strength × the weight of this kind = its contribution to confidence"
+        >
+          <Meter value={item.strength} width={56} colour={meta.colour} />
+          <p className="num mt-1 text-[11px] text-[var(--text-3)]">
+            {item.strength.toFixed(2)} × {item.weight.toFixed(2)}
+          </p>
         </div>
       </div>
     </li>
@@ -93,9 +70,13 @@ function Row({ item }: { item: EvidenceItem }) {
 }
 
 export function EvidenceList({ items }: { items: EvidenceItem[] }) {
-  const observed = items.filter((item) => item.kind !== "typology_reference");
+  const observed = items.filter((item) => evidenceMeta(item.kind).observed);
+  const groups = GROUPS.map((group) => ({
+    ...group,
+    items: observed.filter((item) => group.kinds.includes(item.kind)),
+  })).filter((group) => group.items.length);
 
-  if (!observed.length) {
+  if (!groups.length) {
     return (
       <Note title="No supporting evidence">
         Nothing corroborated this transaction beyond its score. The structural
@@ -105,52 +86,31 @@ export function EvidenceList({ items }: { items: EvidenceItem[] }) {
     );
   }
 
-  const groups = GROUPS.map((group) => ({
-    ...group,
-    items: observed.filter((item) => group.kinds.includes(item.kind)),
-  })).filter((group) => group.items.length);
-
-  const kinds = new Set(observed.map((item) => item.kind)).size;
+  const shown = groups.reduce((sum, group) => sum + group.items.length, 0);
 
   return (
     <div className="space-y-5">
       <ProvLabel
         origin="measured"
-        detail={`${observed.length} item${observed.length === 1 ? "" : "s"} across ${kinds} kind${kinds === 1 ? "" : "s"}`}
+        detail={`${shown} item${shown === 1 ? "" : "s"} across ${groups.length} kind${groups.length === 1 ? "" : "s"}`}
       />
 
       {groups.map((group) => {
         const meta = evidenceMeta(group.kinds[0]);
         return (
-        <section key={group.title}>
-          <h3 className="flex items-center gap-2 text-[var(--text)]">
-            {group.title}
-            {!meta.countsTowardConfidence && (
-              <span className="eyebrow !text-[var(--text-3)]">
-                excluded from confidence
-              </span>
-            )}
-          </h3>
-          <p className="mb-2 mt-0.5 max-w-[74ch] text-[11px] text-[var(--text-3)]">
-            {group.blurb}
-          </p>
-          <ul className="border-t border-[var(--line)] pt-3">
-            {group.items.map((item) => (
-              <Row key={item.id} item={item} />
-            ))}
-          </ul>
-        </section>
+          <section key={group.title}>
+            <h3 className="flex items-center gap-2 text-[var(--text)]" title={meta.hint}>
+              <span className="size-2 shrink-0" style={{ background: meta.colour }} aria-hidden />
+              {group.title}
+            </h3>
+            <ul className="mt-2 border-t border-[var(--line)] pt-3">
+              {group.items.map((item) => (
+                <Row key={item.id} item={item} />
+              ))}
+            </ul>
+          </section>
         );
       })}
-
-      <p className="border-t border-[var(--line)] pt-3 text-[11px] text-[var(--text-3)]">
-        Confidence combines these deterministically, and is computed as soon as the
-        evidence is gathered — before any investigation runs. Items of one kind
-        combine with diminishing returns and can never exceed that kind&rsquo;s
-        weight, so corroboration across kinds counts for more than repetition within
-        one. A model&rsquo;s own score is not evidence, so the second opinion is
-        listed but contributes nothing.
-      </p>
     </div>
   );
 }

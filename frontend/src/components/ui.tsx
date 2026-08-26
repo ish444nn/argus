@@ -69,15 +69,18 @@ export function Panel({
   actions,
   children,
   id,
+  className,
 }: {
   title?: ReactNode;
   meta?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   id?: string;
+  /** Grid placement, for pages that lay panels out rather than stacking them. */
+  className?: string;
 }) {
   return (
-    <section className="panel" id={id}>
+    <section className={className ? `panel ${className}` : "panel"} id={id}>
       {(title || actions) && (
         <header className="panel-head">
           {title && <h2 className="eyebrow !text-[var(--text-2)]">{title}</h2>}

@@ -13,7 +13,14 @@ from typing import Any, Literal
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from argus.agent.evidence import OBSERVED_KINDS
 from argus.agent.tools.graph_tools import NeighbourhoodProfile, neighbourhood_profile
+
+# Bound once. Every "how much evidence is there" question in the read layer
+# asks it of the same set, so the queue's count and the case page's list can
+# never disagree. See `agent.evidence.OBSERVED_KINDS` for why the graph
+# model's own score is not in it.
+_OBSERVED = list(OBSERVED_KINDS)
 
 SortField = Literal["risk_score", "queue_rank", "created_at", "graph_score"]
 SORTABLE: dict[str, str] = {
@@ -66,7 +73,11 @@ def list_queue(
         raise ValueError(f"cannot sort by {sort_by!r}; choose from {sorted(SORTABLE)}")
 
     filters = ["1 = 1"]
-    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    params: dict[str, Any] = {
+        "limit": limit,
+        "offset": offset,
+        "observed_kinds": _OBSERVED,
+    }
     if timestep is not None:
         filters.append("t.timestep = :timestep")
         params["timestep"] = timestep
@@ -103,7 +114,8 @@ def list_queue(
                c.graph_score, c.status, c.confidence, c.created_at,
                latest.decision AS latest_decision,
                (SELECT count(*) FROM evidence_items e
-                 WHERE e.case_report_id = c.id) AS evidence_count
+                 WHERE e.case_report_id = c.id
+                   AND e.kind = ANY(:observed_kinds)) AS evidence_count
         {base}
         ORDER BY {order}
         LIMIT :limit OFFSET :offset
@@ -192,7 +204,12 @@ def _profile(session: Session, tx_id: int) -> NeighbourhoodProfile:
 
 
 def list_evidence(session: Session, case_id: int) -> list[dict[str, Any]]:
-    """Evidence for a case, strongest contribution first."""
+    """Observed evidence for a case, strongest contribution first.
+
+    The graph model's own score is excluded: it reaches the case page as
+    `graph_score`, one of the three signals, not as a finding in the evidence
+    list. Its row is still in the table.
+    """
     rows = session.execute(
         text("""
         SELECT e.id, e.kind, e.summary, e.strength, e.weight,
@@ -201,9 +218,10 @@ def list_evidence(session: Session, case_id: int) -> list[dict[str, Any]]:
         FROM evidence_items e
         LEFT JOIN transactions nt ON nt.tx_id = e.neighbour_tx_id
         WHERE e.case_report_id = :case_id
+          AND e.kind = ANY(:observed_kinds)
         ORDER BY (e.strength * e.weight) DESC, e.id ASC
         """),
-        {"case_id": case_id},
+        {"case_id": case_id, "observed_kinds": _OBSERVED},
     ).all()
 
     return [

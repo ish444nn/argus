@@ -319,3 +319,14 @@ export function startReplay(timestep: number): Promise<{ task_id: string }> {
     method: "POST",
   });
 }
+
+export type BatchRemoved = {
+  timestep: number;
+  cases_removed: number;
+  reviewed_retained: number;
+  scores_removed: number;
+};
+
+export function removeBatch(timestep: number): Promise<BatchRemoved> {
+  return request<BatchRemoved>(`/api/batches/${timestep}`, { method: "DELETE" });
+}

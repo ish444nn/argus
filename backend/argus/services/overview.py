@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from argus.agent.evidence import OBSERVED_KINDS
 from argus.core.config import get_settings
 
 # Score bands for the risk distribution. Wider at the bottom because that is
@@ -95,9 +96,17 @@ def operations(session: Session, budget: float | None = None) -> dict[str, Any]:
         ).all()
     )
 
+    # Observed evidence only. The graph model's own score is a signal reported
+    # per case, not a category of finding, so counting it here would put a
+    # model's opinion in a chart of what the system found out.
     evidence = dict(
         session.execute(
-            text("SELECT kind, count(*) FROM evidence_items GROUP BY kind ORDER BY 2 DESC")
+            text(
+                "SELECT kind, count(*) FROM evidence_items "
+                "WHERE kind = ANY(:observed_kinds) "
+                "GROUP BY kind ORDER BY 2 DESC"
+            ),
+            {"observed_kinds": list(OBSERVED_KINDS)},
         ).all()
     )
 

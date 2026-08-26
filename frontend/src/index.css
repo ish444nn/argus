@@ -55,6 +55,18 @@
   --risk-2: #7f8aa0;
   --risk-1: #5b6577;
 
+  /* Categorical — charts and legends only.
+     Deliberately separate from the provenance trio above: provenance answers
+     "how do we know this", these answer "which of several things is this".
+     Reusing --measured for two evidence kinds made Historical similarity and
+     Structural pattern read as one category in every chart. Five hues, spread
+     far enough apart to survive a 14px legend swatch on dark slate. */
+  --cat-1: #4f9ecf;  /* historical similarity  */
+  --cat-2: #c99a3e;  /* structural pattern     */
+  --cat-3: #d0705c;  /* confirmed counterparty */
+  --cat-4: #57a88b;  /* flagged counterparty   */
+  --cat-5: #9b8cd8;  /* typology source        */
+
   /* Decisions */
   --confirmed: #d0705c;
   --dismissed: #7f8aa0;
@@ -321,6 +333,88 @@ body {
 .btn-primary:hover:not(:disabled) {
   background: color-mix(in oklab, var(--measured) 32%, var(--surface-2));
   border-color: var(--measured);
+}
+
+/* Range input.
+   Themed rather than replaced: a native range keeps arrow keys, Home/End,
+   Page Up/Down and the screen-reader announcement for free, and a div with
+   pointer handlers gets none of that back. Only the paint is ours -- a square
+   thumb and a 2px rail, so the control belongs to the same world as the
+   buttons and the table rules rather than importing the platform's pill. */
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.range::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--line-2);
+}
+
+.range::-moz-range-track {
+  height: 2px;
+  background: var(--line-2);
+}
+
+/* The filled portion. Firefox gives it to us; WebKit does not, so the track
+   there stays uniform and the ticks carry the position instead. */
+.range::-moz-range-progress {
+  height: 2px;
+  background: var(--measured);
+}
+
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;
+  height: 16px;
+  margin-top: -7px;
+  background: var(--measured);
+  border: none;
+  border-radius: 0;
+  transition: background 120ms linear;
+}
+
+.range::-moz-range-thumb {
+  width: 8px;
+  height: 16px;
+  background: var(--measured);
+  border: none;
+  border-radius: 0;
+  transition: background 120ms linear;
+}
+
+.range:hover::-webkit-slider-thumb {
+  background: #6fb4de;
+}
+
+.range:hover::-moz-range-thumb {
+  background: #6fb4de;
+}
+
+.range:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+/* The thumb is the focus target, so the ring goes on it rather than round the
+   whole 100%-wide input, which would draw a rectangle across the panel. */
+.range:focus-visible {
+  outline: none;
+}
+
+.range:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--measured);
+  outline-offset: 2px;
+}
+
+.range:focus-visible::-moz-range-thumb {
+  outline: 2px solid var(--measured);
+  outline-offset: 2px;
 }
 
 .input,

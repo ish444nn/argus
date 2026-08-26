@@ -364,6 +364,48 @@ MEASURED:
   `msedge --headless=new --screenshot=out.png --window-size=W,H
   --virtual-time-budget=12000 <url>`. No Playwright needed.
 
+## Phase 6.2 findings
+
+- **CI needed a worker, not a weaker test.** `test_health_against_the_real_stack`
+  failed with `degraded` because CI started Postgres and Redis but no Celery
+  worker, and /health correctly calls that an error. CI now starts a native
+  worker (`--extra gnn --extra agent` is already installed, and worker boot is
+  light) and polls `celery inspect ping` until it answers. Background processes
+  persist across steps in a job.
+- **Render's `plan` is per *runtime*, not per type.** `services[1].plan no such
+  plan free for service type web` pointed at the **static site**: static sites
+  take no plan at all. The Docker web service keeps `plan: free`. No worker or
+  Redis service was added; they stay local.
+- **The API image caught a layering mistake at build time.** Importing
+  `services.replay` from a router pulled `agent.tools.similarity` ->
+  `argus.ml.splits` -> numpy, and the API container died on boot. Batch removal
+  now lives in **`argus/services/batches.py`**, which imports only SQLAlchemy and
+  models. Do not import `services.replay` from `argus.api.*`.
+- **`OBSERVED_KINDS` is the one definition of "evidence".** The second opinion
+  is a signal, not a finding, so it is excluded from the overview chart, the
+  queue's evidence count, `/cases/{id}/evidence`, and the ids a narrative may
+  cite. The row still exists and still drives typology retrieval. Before this,
+  a report cited an evidence id the case page did not list.
+- **`DELETE /api/batches/{ts}` undoes a replay**: run row, scores and unreviewed
+  cases, scoped to that time step. Reviewed cases survive -- the same rule
+  `_sync_queue` already applied. Synchronous, because needing a worker to tidy
+  up after one would be perverse.
+- **A test of mine was quietly degrading the demo.**
+  `test_investigating_does_not_move_the_confidence` investigated the *top real
+  case* with the stub provider, overwriting a Gemini report with a template one.
+  It now picks an uninvestigated case and restores it in a `finally`. Verified:
+  a full pytest run leaves every Gemini report intact.
+- **Gemini free tier is 20 `generate_content` requests per day** for
+  `gemini-3.6-flash` (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`).
+  This is the number CLAUDE.md previously listed as unmeasured. Past it, every
+  investigation falls back to the rule-built narrative and records the 429 in
+  `investigation_meta.provider_errors` -- visible, not silent.
+- **Categorical colours are `--cat-1..5`**, separate from the provenance trio.
+  Reusing `--measured` for two evidence kinds made them one blue blob in every
+  chart. Labels and colours now both come from `frontend/src/evidence.ts`.
+- Range inputs are themed, not rebuilt: `.range` in `index.css` paints a 2px
+  rail and a square thumb, keeping arrow keys and screen-reader support.
+
 ## Phase end protocol
 
 Report: What I changed / Why / Tests-checks / Important decisions / Suggested commit.

@@ -16,6 +16,7 @@ from sqlalchemy import text
 from argus.agent.tools import graph_tools, similarity
 from argus.db.enums import BatchStatus, CaseStatus, EvidenceKind, Label
 from argus.ml.splits import TEST_TIMESTEPS, TRAIN_TIMESTEPS, VAL_TIMESTEPS
+from argus.services import batches as batch_service
 from argus.services import queue as queue_service
 from argus.services import replay as replay_service
 
@@ -698,23 +699,172 @@ def test_investigating_does_not_move_the_confidence(db_session, replayed):
     Confidence is a function of the deterministic evidence, and running an
     investigation does not change that evidence -- so the number must not
     move.
+
+    Deliberately runs against a case that has *not* been investigated, and puts
+    it back afterwards. Pointing a stub-provider test at the top demo case
+    overwrites a real Gemini report with a template one, which is the kind of
+    shared-state mutation that makes a test run quietly degrade the demo.
     """
     from argus.agent.graph import investigate
     from argus.agent.llm import StubProvider
 
     row = db_session.execute(
         text("""
-        SELECT c.id, c.confidence FROM case_reports c
+        SELECT c.id, c.confidence, c.status FROM case_reports c
         JOIN transactions t ON t.tx_id = c.tx_id
-        WHERE t.timestep = :ts ORDER BY c.queue_rank LIMIT 1
+        WHERE t.timestep = :ts AND c.narrative IS NULL
+        ORDER BY c.queue_rank LIMIT 1
         """),
         {"ts": REPLAY_TIMESTEP},
-    ).one()
+    ).one_or_none()
+    if row is None:
+        pytest.skip("every case in this batch has been investigated")
     before = float(row.confidence)
 
-    investigate(db_session, int(row.id), provider=StubProvider())
+    try:
+        investigate(db_session, int(row.id), provider=StubProvider())
 
-    after = db_session.execute(
-        text("SELECT confidence FROM case_reports WHERE id = :c"), {"c": row.id}
+        after = db_session.execute(
+            text("SELECT confidence FROM case_reports WHERE id = :c"), {"c": row.id}
+        ).scalar_one()
+        assert float(after) == pytest.approx(before, abs=1e-4)
+    finally:
+        # Leave the case as it was found: no narrative, no citations.
+        db_session.execute(
+            text("DELETE FROM evidence_items WHERE case_report_id = :c AND kind = :k"),
+            {"c": row.id, "k": EvidenceKind.TYPOLOGY_REFERENCE.value},
+        )
+        db_session.execute(
+            text("""
+            UPDATE case_reports
+            SET narrative = NULL, narrative_source = NULL, typology_assessment = NULL,
+                recommended_action = NULL, investigation_meta = NULL, status = :status
+            WHERE id = :c
+            """),
+            {"c": row.id, "status": row.status},
+        )
+        db_session.commit()
+
+
+# --------------------------------------------------------------------------
+# Removing a batch
+# --------------------------------------------------------------------------
+
+# A time step the demo does not normally replay, so this test builds and tears
+# down its own batch instead of dismantling the state the other tests read.
+THROWAWAY_TIMESTEP = 39
+
+
+@pytest.fixture
+def throwaway_batch(db_session, embedded):
+    """Replay a spare time step, and make sure it is gone afterwards."""
+    from argus.ml import registry
+
+    try:
+        registry.load_metadata("xgb-all166")
+    except FileNotFoundError:
+        pytest.skip("no trained model (`python -m argus.ml.cli train`)")
+
+    already = db_session.execute(
+        text("SELECT 1 FROM batch_runs WHERE timestep = :ts"),
+        {"ts": THROWAWAY_TIMESTEP},
+    ).scalar_one_or_none()
+    if already:
+        pytest.skip(f"time step {THROWAWAY_TIMESTEP} is in use; not borrowing it")
+
+    result = replay_service.replay_batch(db_session, THROWAWAY_TIMESTEP)
+    yield result
+    # Whatever the test did, leave no trace. Reviewed cases survive removal by
+    # design, so drop their reviews first.
+    db_session.execute(
+        text("""
+        DELETE FROM reviews WHERE case_report_id IN (
+            SELECT c.id FROM case_reports c
+            JOIN transactions t ON t.tx_id = c.tx_id
+            WHERE t.timestep = :ts
+        )
+        """),
+        {"ts": THROWAWAY_TIMESTEP},
+    )
+    db_session.commit()
+    batch_service.remove_batch(db_session, THROWAWAY_TIMESTEP)
+
+
+def test_removing_a_batch_undoes_its_replay(db_session, throwaway_batch):
+    """Remove means undo: run row, scores and unreviewed cases, nothing else."""
+    from argus.services import review as review_service
+
+    cases = (
+        db_session.execute(
+            text("""
+        SELECT c.id FROM case_reports c
+        JOIN transactions t ON t.tx_id = c.tx_id
+        WHERE t.timestep = :ts ORDER BY c.queue_rank
+        """),
+            {"ts": THROWAWAY_TIMESTEP},
+        )
+        .scalars()
+        .all()
+    )
+    assert len(cases) > 1, "need at least two cases to tell retained from removed"
+
+    reviewed_case = cases[0]
+    review_service.record(db_session, reviewed_case, "confirmed", "keep me")
+
+    neighbours_before = db_session.execute(
+        text("SELECT count(*) FROM batch_runs WHERE timestep <> :ts"),
+        {"ts": THROWAWAY_TIMESTEP},
     ).scalar_one()
-    assert float(after) == pytest.approx(before, abs=1e-4)
+
+    result = batch_service.remove_batch(db_session, THROWAWAY_TIMESTEP)
+
+    assert result.reviewed_retained == 1
+    assert result.cases_removed == len(cases) - 1
+    assert result.scores_removed > 0
+
+    # The run row is gone, so the time step is offered for replay again.
+    assert (
+        db_session.execute(
+            text("SELECT count(*) FROM batch_runs WHERE timestep = :ts"),
+            {"ts": THROWAWAY_TIMESTEP},
+        ).scalar_one()
+        == 0
+    )
+    # ...and so are its scores.
+    assert (
+        db_session.execute(
+            text("""
+            SELECT count(*) FROM risk_scores r
+            JOIN transactions t ON t.tx_id = r.tx_id
+            WHERE t.timestep = :ts
+            """),
+            {"ts": THROWAWAY_TIMESTEP},
+        ).scalar_one()
+        == 0
+    )
+
+    surviving = (
+        db_session.execute(
+            text("SELECT id FROM case_reports WHERE id = ANY(:ids)"),
+            {"ids": list(cases)},
+        )
+        .scalars()
+        .all()
+    )
+    assert surviving == [reviewed_case], "an analyst's decided case was destroyed"
+
+    # Nothing else in the database moved.
+    assert (
+        db_session.execute(
+            text("SELECT count(*) FROM batch_runs WHERE timestep <> :ts"),
+            {"ts": THROWAWAY_TIMESTEP},
+        ).scalar_one()
+        == neighbours_before
+    )
+    assert (
+        db_session.execute(
+            text("SELECT count(*) FROM transactions WHERE timestep = :ts"),
+            {"ts": THROWAWAY_TIMESTEP},
+        ).scalar_one()
+        > 0
+    ), "removal deleted dataset rows, not just the run"

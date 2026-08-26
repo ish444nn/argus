@@ -225,7 +225,7 @@ confirmed_neighbour       0.40
 structural_similarity     0.25
 flagged_neighbour         0.20
 heuristic                 0.15
-graph_model_corroboration 0.00   a model's own score, not evidence
+graph_model_corroboration 0.00   not evidence at all; see OBSERVED_KINDS
 typology_reference        0.00   explains a signal; is not one
 ```
 

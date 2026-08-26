@@ -11,7 +11,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from argus.agent.evidence import OBSERVED_KINDS
 from argus.api.main import app
+from argus.db.enums import EvidenceKind
 
 pytestmark = pytest.mark.integration
 
@@ -49,10 +51,33 @@ def test_overview_counts_match_the_database(api, session):
     body = api.get("/api/overview").json()
 
     cases = session.execute(text("SELECT count(*) FROM case_reports")).scalar_one()
-    evidence = session.execute(text("SELECT count(*) FROM evidence_items")).scalar_one()
+    observed = session.execute(
+        text("SELECT count(*) FROM evidence_items WHERE kind = ANY(:kinds)"),
+        {"kinds": list(OBSERVED_KINDS)},
+    ).scalar_one()
 
     assert body["cases"]["total"] == cases
-    assert sum(body["evidence"].values()) == evidence
+    assert sum(body["evidence"].values()) == observed
+
+
+def test_overview_evidence_excludes_the_graph_model_score(api, session):
+    """The second opinion is a signal, not a category of finding.
+
+    Its rows exist -- they carry provenance and steer typology retrieval -- but
+    counting them here would put a model's opinion of a transaction in a chart
+    of what the system found out about it.
+    """
+    stored = session.execute(
+        text("SELECT count(*) FROM evidence_items WHERE kind = :kind"),
+        {"kind": EvidenceKind.GRAPH_MODEL_CORROBORATION.value},
+    ).scalar_one()
+    if not stored:
+        pytest.skip("no graph-model evidence recorded")
+
+    assert (
+        EvidenceKind.GRAPH_MODEL_CORROBORATION.value
+        not in api.get("/api/overview").json()["evidence"]
+    )
 
 
 def test_overview_case_states_partition_the_total(api):

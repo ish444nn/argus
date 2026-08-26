@@ -64,8 +64,8 @@ def _format_evidence(evidence: DeterministicEvidence) -> str:
         "",
         "Evidence items:",
     ]
-    if evidence.evidence:
-        for item in evidence.evidence:
+    if evidence.observed:
+        for item in evidence.observed:
             source = f" [from transaction {item.neighbour_tx_id}]" if item.neighbour_tx_id else ""
             lines.append(
                 f"  [id {item.id}] ({item.kind}, strength {item.strength:.2f})"
@@ -165,10 +165,6 @@ def build_template_narrative(
             )
         )
 
-    corroboration = evidence.by_kind("graph_model_corroboration")
-    if corroboration:
-        claims.append(Claim(text=corroboration[0].summary, evidence_ids=[corroboration[0].id]))
-
     typology = "no_clear_typology"
     for pattern in retrieved.patterns:
         if pattern in _PATTERN_TO_TYPOLOGY:
@@ -187,9 +183,9 @@ def build_template_narrative(
         f"Transaction {evidence.tx_id} was scored {evidence.risk_score:.3f} by "
         f"{evidence.model_version} and placed in the review queue"
         + (f" at rank {evidence.queue_rank}" if evidence.queue_rank else "")
-        + f". {len(evidence.evidence)} supporting evidence item(s) were assembled."
+        + f". {len(evidence.observed)} supporting evidence item(s) were assembled."
     )
-    if not evidence.evidence:
+    if not evidence.observed:
         summary += " No corroborating structural evidence was found."
 
     return Narrative(

@@ -100,12 +100,49 @@ jobs:
         # surfaces on the next deployment.
         run: uv run alembic check
 
+      - name: Start a Celery worker
+        working-directory: backend
+        # The real-stack health test asserts the whole stack reports `ok`, and
+        # /health reports a missing worker as an error. Without a worker here
+        # that test would have to accept "degraded" -- which is exactly the
+        # failure it exists to catch, so CI grows a worker rather than the
+        # test growing a tolerance.
+        #
+        # It runs natively: this job already installs the `gnn` and `agent`
+        # extras, and a worker boots light because the heavy imports live
+        # inside the task bodies. No image build is needed.
+        #
+        # Background processes survive to later steps in the same job, so the
+        # worker is still listening when pytest runs.
+        run: |
+          uv run celery -A argus.jobs.celery_app:celery_app worker \
+            --loglevel=info --concurrency=1 > celery.log 2>&1 &
+          # `inspect ping` exits non-zero until a worker answers on the broker,
+          # which is the same question /health asks. Poll it rather than
+          # sleeping a fixed guess.
+          for _ in $(seq 1 30); do
+            if uv run celery -A argus.jobs.celery_app:celery_app inspect ping -t 2; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::no Celery worker became available in 60s"
+          cat celery.log
+          exit 1
+
       - name: Test
         working-directory: backend
         # Integration tests self-skip when the Elliptic dataset is absent, and
         # it is absent here by design: it is 690 MB and downloading it on every
         # run would cost more than it proves.
         run: uv run pytest -q
+
+      - name: Worker log
+        # Only interesting when something failed: a health test that went
+        # degraded is usually a worker that died after booting.
+        if: failure()
+        working-directory: backend
+        run: cat celery.log || true
 
   frontend:
     name: Frontend
