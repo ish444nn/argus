@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     app_env: Literal["local", "test", "production"] = "local"
     log_level: str = "INFO"
 
+    # Origins allowed to call the API from a browser. The development default
+    # is the Vite dev server; a deployment must set this to its own frontend
+    # origin. `_check_production_safety` refuses to start in production if it
+    # is still the development value, because a silently wrong CORS list looks
+    # like a broken frontend rather than a misconfiguration.
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
     # Host-side defaults use non-standard ports: the Compose services are
     # published on 5433/6380 so they never collide with a natively installed
     # PostgreSQL or Redis. Inside Compose these are overridden with the
@@ -55,10 +62,41 @@ class Settings(BaseSettings):
     embedding_model: str = "gemini-embedding-001"
     embedding_dim: int = Field(default=768, ge=1)
 
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env == "production"
+
     @model_validator(mode="after")
     def _check_llm_credentials(self) -> "Settings":
         if self.llm_provider == "gemini" and not self.gemini_api_key:
             raise ValueError("LLM_PROVIDER=gemini requires GEMINI_API_KEY to be set")
+        return self
+
+    @model_validator(mode="after")
+    def _check_production_safety(self) -> "Settings":
+        """Refuse to start in production on development defaults.
+
+        Each of these fails quietly rather than loudly if it slips through: a
+        localhost database URL times out somewhere unhelpful, and a localhost
+        CORS list makes the deployed frontend look broken. Failing at startup
+        with the variable name is far cheaper to diagnose.
+        """
+        if not self.is_production:
+            return self
+
+        problems: list[str] = []
+        if "localhost" in self.database_url or "127.0.0.1" in self.database_url:
+            problems.append("DATABASE_URL still points at localhost")
+        if "localhost" in self.redis_url or "127.0.0.1" in self.redis_url:
+            problems.append("REDIS_URL still points at localhost")
+        if any("localhost" in origin for origin in self.allowed_origins):
+            problems.append("CORS_ORIGINS still contains localhost")
+        if problems:
+            raise ValueError("APP_ENV=production but: " + "; ".join(problems))
         return self
 
     @property

@@ -44,11 +44,23 @@ def override_session():
     app.dependency_overrides.clear()
 
 
-def test_health_reports_every_dependency(client, override_session):
+def test_health_reports_every_dependency(client, override_session, monkeypatch):
     override_session(_FakeSession())
+    # No broker in a unit test, and the worker probe would otherwise wait out
+    # its timeout on every call.
+    monkeypatch.setattr(
+        "argus.jobs.celery_app.celery_app.control.ping",
+        lambda **kwargs: [{"celery@test": {"ok": "pong"}}],
+    )
     body = client.get("/health").json()
 
-    assert set(body["dependencies"]) == {"api", "postgres", "pgvector", "redis"}
+    assert set(body["dependencies"]) == {
+        "api",
+        "postgres",
+        "pgvector",
+        "redis",
+        "worker",
+    }
     assert body["dependencies"]["postgres"]["status"] == "ok"
     assert body["dependencies"]["pgvector"]["status"] == "ok"
     assert body["environment"] == "test"

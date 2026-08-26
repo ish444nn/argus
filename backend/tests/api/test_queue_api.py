@@ -155,3 +155,34 @@ def test_replay_refuses_a_training_timestep(api):
 def test_batch_listing_covers_every_replayed_timestep(api):
     body = api.get("/api/batches").json()
     assert any(run["timestep"] == REPLAY_TIMESTEP for run in body)
+
+
+def test_dispatch_fails_fast_when_the_broker_is_unreachable(api, monkeypatch):
+    """A dead broker must produce an error, not a hanging request.
+
+    Celery's publish path retries for tens of seconds by default, so pressing
+    "Run investigation" with Redis down left the request hanging. `dispatch`
+    checks the connection first and turns a failure into a 503 naming the
+    cause.
+    """
+    from argus.api import deps
+
+    class DeadConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def ensure_connection(self, **kwargs):
+            raise OSError("broker unreachable")
+
+    monkeypatch.setattr(
+        "argus.jobs.celery_app.celery_app.connection_for_write",
+        lambda: DeadConnection(),
+    )
+
+    with pytest.raises(Exception) as caught:  # noqa: B017 - HTTPException
+        deps.dispatch("argus.investigate_case", 1)
+    assert getattr(caught.value, "status_code", None) == 503
+    assert "queue is unavailable" in str(getattr(caught.value, "detail", ""))

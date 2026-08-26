@@ -19,6 +19,7 @@ model for anything.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -84,14 +85,23 @@ def persist(
     drafts: list[EvidenceDraft],
     *,
     replace: bool = True,
+    kinds: Sequence[EvidenceKind] | None = None,
 ) -> int:
     """Write drafts as evidence rows.
 
-    `replace` clears the case's existing evidence first. Evidence is derived
-    from the graph and the models, so re-running an investigation should
-    restate it rather than accumulate duplicates.
+    `replace` clears existing evidence first, because evidence is derived and
+    a re-run should restate it rather than accumulate duplicates.
+
+    `kinds` scopes that clearing to the kinds the caller actually produces. A
+    caller should only ever delete what it is about to replace: replay
+    regenerates deterministic evidence, and without a scope it also deleted the
+    typology citations an investigation had written, leaving a stored narrative
+    citing sources that no longer existed.
     """
     if replace:
-        session.execute(delete(EvidenceItem).where(EvidenceItem.case_report_id == case_report_id))
+        statement = delete(EvidenceItem).where(EvidenceItem.case_report_id == case_report_id)
+        if kinds is not None:
+            statement = statement.where(EvidenceItem.kind.in_([kind.value for kind in kinds]))
+        session.execute(statement)
     session.add_all(draft.to_row(case_report_id) for draft in drafts)
     return len(drafts)

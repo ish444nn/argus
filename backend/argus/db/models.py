@@ -199,15 +199,21 @@ class TypologyReference(Base):
     patterns: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(TEXT_EMBEDDING_DIM), nullable=True)
     # Which embedder produced the vector. Corpus and query vectors must come
-    # from the same model or the distances are meaningless, so retrieval
-    # checks this rather than trusting that the two happen to match.
+    # from the same model or the distances are meaningless, so this is part of
+    # a chunk's identity rather than a label on it: two embedding spaces can
+    # coexist, retrieval selects the active one, and re-ingesting one space
+    # leaves the other untouched.
     embedding_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     document: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = created_at_column()
 
     __table_args__ = (
-        UniqueConstraint("typology_id", "chunk_index"),
+        # Includes the embedding model: the same passage may be stored once per
+        # space. Without this, ingesting under a second embedder would collide
+        # and force a destructive replace.
+        UniqueConstraint("typology_id", "chunk_index", "embedding_model"),
         Index("ix_typology_references_patterns", "patterns", postgresql_using="gin"),
+        Index("ix_typology_references_embedding_model", "embedding_model"),
         Index(
             "ix_typology_references_embedding",
             "embedding",

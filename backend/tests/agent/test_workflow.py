@@ -62,14 +62,56 @@ def db():
 
 @pytest.fixture(scope="module")
 def seeded(db):
-    """A corpus and at least one case to investigate."""
-    cases = db.execute(text("SELECT count(*) FROM case_reports")).scalar_one()
-    if not cases:
-        pytest.skip("no cases; run a replay first")
+    """A corpus, and a case of this module's own making.
+
+    Deliberately not the highest-scoring real case. These tests investigate
+    with the stub provider, so pointing them at a demo case would overwrite a
+    real Gemini report with a template one -- exactly the kind of shared-state
+    mutation that made a test run destroy the demo. The case is built from a
+    real transaction (so the evidence is real), and removed afterwards.
+    """
+    from argus.db.models import CaseReport
+    from argus.services import replay as replay_service
+
+    if not db.execute(text("SELECT count(*) FROM transaction_embeddings")).scalar_one():
+        pytest.skip("no embeddings; run `argus.ml.cli embed` first")
+
     corpus.ingest(db)
-    return db.execute(
-        text("SELECT id FROM case_reports ORDER BY risk_score DESC LIMIT 1")
-    ).scalar_one()
+
+    tx_id = db.execute(
+        text("""
+        SELECT t.tx_id
+        FROM transactions t
+        JOIN transaction_embeddings e ON e.tx_id = t.tx_id
+        LEFT JOIN case_reports c ON c.tx_id = t.tx_id
+        WHERE c.id IS NULL AND t.timestep >= 35 AND e.graph_score IS NOT NULL
+        ORDER BY e.graph_score DESC
+        LIMIT 1
+        """)
+    ).scalar_one_or_none()
+    if tx_id is None:
+        pytest.skip("no spare transaction to build a test case from")
+
+    case = CaseReport(
+        tx_id=int(tx_id),
+        risk_score=0.99,
+        model_version="test-fixture",
+        queue_rank=999,
+        graph_score=db.execute(
+            text("SELECT graph_score FROM transaction_embeddings WHERE tx_id = :tx"),
+            {"tx": tx_id},
+        ).scalar_one(),
+    )
+    db.add(case)
+    db.commit()
+
+    replay_service.gather_evidence(db, case, timestep=35)
+    db.commit()
+
+    yield case.id
+
+    db.execute(text("DELETE FROM case_reports WHERE id = :c"), {"c": case.id})
+    db.commit()
 
 
 # --------------------------------------------------------------------------
@@ -90,8 +132,10 @@ def test_corpus_is_stored_with_embeddings(db, seeded):
 
     assert row.chunks > 0
     assert row.embedded == row.chunks
-    assert row.models == 1, "the corpus must be embedded by a single model"
     assert row.sources >= 10
+    # Several embedding spaces may be stored side by side; retrieval selects
+    # the active one. What matters is that this embedder's space is complete.
+    assert row.models >= 1
 
 
 def test_stored_vectors_have_the_configured_dimension(db, seeded):
@@ -146,9 +190,11 @@ def test_no_patterns_retrieves_nothing(db, seeded):
     assert result.chunks == []
 
 
-def test_mismatched_embedding_spaces_are_refused(db, seeded):
-    """Corpus embedded by one model and queried by another returns confident
-    nonsense rather than an error, so it has to be an error."""
+def test_an_embedder_with_no_corpus_fails_loudly(db, seeded):
+    """Retrieval now selects its own embedding space rather than refusing a
+    foreign one, so a mismatch returns nothing instead of nonsense. Silence is
+    quieter but just as wrong, so an embedder with no stored corpus is an
+    error naming the fix."""
 
     class OtherEmbedder:
         model_name = "some-other-model"
@@ -157,12 +203,39 @@ def test_mismatched_embedding_spaces_are_refused(db, seeded):
         def embed(self, texts):
             return [[0.0] * 768 for _ in texts]
 
-    with pytest.raises(ValueError, match="re-ingest"):
+    with pytest.raises(ValueError, match="ingest-corpus"):
         retrieval.retrieve(
             db,
             retrieval.RetrievalQuery(text="x", patterns=["layering"]),
             embedder=OtherEmbedder(),
         )
+
+
+def test_retrieval_only_reads_its_own_embedding_space(db, seeded):
+    """The isolation that stops a test run destroying a real demo state.
+
+    The suite runs under the stub provider, so the rows it retrieves must all
+    carry the stub's model name even when a Gemini-embedded corpus is stored
+    alongside.
+    """
+    from argus.agent.embeddings import get_embedder
+
+    active = get_embedder().model_name
+    result = retrieval.retrieve(
+        db, retrieval.RetrievalQuery(text="layering", patterns=["layering"]), k=5
+    )
+    assert result.chunks
+
+    ids = [chunk.reference_id for chunk in result.chunks]
+    models = (
+        db.execute(
+            text("SELECT DISTINCT embedding_model FROM typology_references WHERE id = ANY(:ids)"),
+            {"ids": ids},
+        )
+        .scalars()
+        .all()
+    )
+    assert models == [active]
 
 
 # --------------------------------------------------------------------------

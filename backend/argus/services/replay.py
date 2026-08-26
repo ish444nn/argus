@@ -43,6 +43,16 @@ from argus.db.models import BatchRun, CaseReport, EvidenceItem, Review, RiskScor
 
 log = logging.getLogger(__name__)
 
+# What replay itself produces. Everything else on a case -- typology
+# citations -- is written by the investigation and is not replay's to delete.
+DETERMINISTIC_KINDS = (
+    EvidenceKind.HEURISTIC,
+    EvidenceKind.FLAGGED_NEIGHBOUR,
+    EvidenceKind.CONFIRMED_NEIGHBOUR,
+    EvidenceKind.STRUCTURAL_SIMILARITY,
+    EvidenceKind.GRAPH_MODEL_CORROBORATION,
+)
+
 
 @dataclass
 class ReplayResult:
@@ -179,7 +189,8 @@ def _sync_queue(
     cases: list[CaseReport] = []
     for tx_id, score, rank in selected:
         case = session.scalar(select(CaseReport).where(CaseReport.tx_id == tx_id))
-        if case is None:
+        is_new = case is None
+        if is_new:
             case = CaseReport(tx_id=tx_id)
             session.add(case)
         case.batch_run_id = batch_run_id
@@ -187,8 +198,12 @@ def _sync_queue(
         case.model_version = model_version
         case.queue_rank = rank
         case.graph_score = graph.get(tx_id)
-        # Phase 4 moves this to `ready` once a narrative exists.
-        case.status = CaseStatus.QUEUED
+        if is_new:
+            # Only a new case starts at `queued`. Re-replaying a batch
+            # regenerates identical deterministic evidence, so an existing
+            # report is still valid -- resetting its status would discard a
+            # written investigation for no reason.
+            case.status = CaseStatus.QUEUED
         cases.append(case)
 
     session.flush()
@@ -224,7 +239,9 @@ def gather_evidence(session: Session, case: CaseReport, timestep: int) -> int:
             )
         )
 
-    return persist(session, case.id, drafts)
+    # Scoped to the kinds this function produces. Typology citations belong
+    # to the investigation and must survive a re-replay.
+    return persist(session, case.id, drafts, kinds=DETERMINISTIC_KINDS)
 
 
 def replay_batch(

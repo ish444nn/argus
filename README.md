@@ -1,297 +1,324 @@
 # Argus
 
-Graph-based financial transaction risk assessment and evidence-grounded investigation.
+Graph-based transaction risk assessment and evidence-grounded investigation.
 
-Argus scores transactions in a financial transaction network using both their own
-features and the structure of the network around them, then hands high-risk
-transactions to an agent that gathers cited evidence and produces a structured case
-report for a human analyst.
+Argus scores transactions in a financial transaction network using both their
+own features and the structure of the network around them, ranks each batch and
+takes the top 1% for review, then runs an investigation that gathers cited
+evidence and writes an assessment an analyst can check line by line.
 
 Two ideas sit at the centre, and both are tested rather than assumed:
 
-1. **Network structure carries signal a single row cannot.** A tabular baseline and a
-   graph model are trained on identical temporal splits, and the graph model is used
-   for scoring only if it measurably wins.
+1. **Network structure carries signal a single row cannot.** A tabular baseline
+   and a graph model are trained on identical temporal splits, and the graph
+   model is used for scoring only if it measurably wins. It did not — that
+   result is reported rather than buried.
 2. **A score is not actionable; evidence is.** Case confidence is computed
-   deterministically from the evidence assembled — never self-reported by a language
-   model — and any typology language is retrieved from a reference corpus and cited,
-   not invented.
+   deterministically from assembled evidence — never self-reported by a
+   language model — and every typology claim is retrieved from a reference
+   corpus and cited, never invented.
 
-Full requirements: [docs/prd.md](docs/prd.md). Architecture decisions and
-implementation rules: [CLAUDE.md](CLAUDE.md).
+---
 
-> **Status: Phase 5 — the analyst product.** Batches replay through Celery, the
-> top 1% become cases with deterministic evidence, a LangGraph workflow
-> retrieves AML typology passages and writes a cited assessment, and an analyst
-> can work the queue and record a decision in the browser. Sign-in is the one
-> piece of the PRD's analyst flow still outstanding.
->
-> **No API key is needed.** With `LLM_PROVIDER=stub` the corpus is embedded by
-> a deterministic hashing vectoriser and narratives are built from the evidence
-> by rule, so the whole pipeline runs and every test passes offline. Add a
-> Gemini key for model-written narratives.
->
-> The model comparison landed on the baseline: `xgb-all166` reaches 0.374 recall
-> at a 1% alert budget on the held-out range against GraphSAGE's 0.054, so
-> XGBoost is the primary scorer and GraphSAGE serves the investigation layer.
-> Details and method in [docs/modeling.md](docs/modeling.md); the replay and
-> evidence pipeline is in [docs/investigation.md](docs/investigation.md).
-
-## Repository structure
+## Architecture
 
 ```
-backend/            One Python package, one pyproject
+                    ┌──────────────────────────────────────────┐
+   Elliptic ──────▶ │  ingest ▸ splits ▸ XGBoost ▸ GraphSAGE    │  offline
+   (203,769 tx)     └──────────────────┬───────────────────────┘
+                                       │ model artifacts + embeddings
+                                       ▼
+   Browser ──▶ React ──▶ FastAPI ──▶ PostgreSQL + pgvector
+                            │              ▲
+                            │ dispatch     │ scores, cases, evidence, reports
+                            ▼              │
+                          Redis ──▶ Celery worker
+                                       │
+                        ┌──────────────┴───────────────┐
+                        │ replay_batch                 │  XGBoost ▸ rank ▸ top 1%
+                        │ investigate_case             │  LangGraph ▸ RAG ▸ Gemini
+                        └──────────────────────────────┘
+```
+
+The API and the worker run the same code from two Docker targets. Only the
+worker carries PyTorch, XGBoost, LangGraph and the Gemini SDK; the API reads
+precomputed rows, which is what keeps the deployed image small.
+
+| Layer | Choice |
+|---|---|
+| Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 (sync), Alembic, `uv` |
+| Database | PostgreSQL 16 + pgvector (two vector spaces: 768-d text, 64-d transaction) |
+| Jobs | Celery + Redis, one worker, two tasks |
+| ML | XGBoost (primary scorer), PyTorch + PyTorch Geometric (GraphSAGE) |
+| AI | LangGraph, Gemini `gemini-3.6-flash`, `gemini-embedding-001` |
+| Frontend | Vite, React 19, TypeScript, Tailwind v4, TanStack Query, React Router |
+| Experiments | MLflow (local SQLite; not a runtime dependency) |
+
+## Project structure
+
+```
+backend/
   argus/
-    api/            FastAPI app, routers, response schemas
-    core/           Configuration and logging
-    db/             SQLAlchemy models, enums, session
-    jobs/           Celery app and tasks
-    ml/             Dataset, splits, features, graph, models, evaluation
-    agent/          Evidence, tools, RAG corpus, LangGraph workflow, LLM
-    services/       Batch replay, investigation, queue queries
-  alembic/          Migrations
+    api/          FastAPI app, routers, schemas, dependencies
+    agent/        Evidence, tools, RAG corpus, LangGraph workflow, LLM providers
+    core/         Configuration and logging
+    db/           Models, enums, session
+    jobs/         Celery app and tasks
+    ml/           Dataset, splits, features, graph, models, evaluation, scoring
+    services/     Replay, investigation, queue, overview, review, snapshot
+  alembic/        Migrations — the only thing that may change the schema
   tests/
-frontend/           Vite + React + TypeScript + Tailwind + TanStack Query
-data/               Elliptic dataset (git-ignored) + committed typology corpus
-models/             Exported model artifacts (git-ignored)
-docs/               PRD and design notes
-docker/             Container support files
+frontend/
+  src/
+    api/          Typed fetch client
+    components/   Shell, evidence, investigation, review, ego graph, primitives
+    routes/       Overview, Queue, Case
+data/
+  typologies/     13 curated AML notes (committed)
+  elliptic/       Dataset (git-ignored, downloaded by script)
+models/           Trained artifacts (git-ignored; manifests committed)
+docs/             Modeling, investigation, agent, design, deployment
 ```
 
-## Local architecture
+## Local setup
 
-```
-   frontend (Vite :5173)
-         │  HTTP
-         ▼
-   API (FastAPI :8000) ──dispatch──▶ Redis ──▶ Celery worker
-         │                                          │
-         └──────────────▶ PostgreSQL + pgvector ◀───┘
-```
-
-The API and the worker run the same code from two Docker targets. Only the worker
-carries PyTorch, PyTorch Geometric and XGBoost; the API just reads rows, which keeps
-the deployed image small.
-
-## Prerequisites
-
-- **Docker Desktop**, running. Everything else runs inside it.
-- **[uv](https://docs.astral.sh/uv/)** — for backend commands run on the host.
-- **Node 20+** — for the frontend.
-
-Python 3.12 is pinned in `backend/pyproject.toml` and installed by uv automatically;
-you do not need it on your system.
-
-## Configuration
+**Prerequisites:** Docker Desktop, [uv](https://docs.astral.sh/uv/), Node 20+.
+Python 3.12 is installed by uv; you do not need it on your system.
 
 ```bash
-cp .env.example .env
+cp .env.example .env      # defaults work as-is
+docker compose up -d      # postgres, redis, api, worker, frontend
 ```
 
-Defaults work as-is. `LLM_PROVIDER=stub` means **no API key is required** — the
-system runs, and tests pass, entirely offline. Set `LLM_PROVIDER=gemini` and
-`GEMINI_API_KEY` when you want real narratives.
-
-Never commit `.env`; it is git-ignored.
-
-> **Ports.** Compose publishes PostgreSQL on **5433** and Redis on **6380**, not the
-> standard 5432/6379, so they cannot collide with a natively installed PostgreSQL or
-> Redis. Inside the Compose network the services still use standard ports.
-
-## Running
-
-```bash
-docker compose up            # postgres, redis, api, worker
-```
-
-The first build downloads PyTorch for the worker image and takes several minutes.
-Afterwards it is cached.
-
-Then, in another terminal, create the schema:
+Then create the schema:
 
 ```bash
 cd backend
 uv run alembic upgrade head
 ```
 
-Check it worked:
+Open **http://localhost:5173**. The API is on **http://localhost:8000**
+(`/docs` for the OpenAPI browser).
+
+> **Ports.** Compose publishes PostgreSQL on **5433** and Redis on **6380**, not
+> the standard ports, so they cannot collide with a natively installed
+> PostgreSQL or Redis. Inside the Compose network the standard ports still
+> apply.
+
+### Running the frontend
+
+Two options — both give hot reload.
+
+**In Docker** (default). `docker compose up` starts a `frontend` service that
+runs the Vite dev server with the source bind-mounted. Nothing else to do.
+
+**On the host**, if you prefer. The `cd` matters — `npm run dev` fails from the
+repository root, because `package.json` lives in `frontend/`:
 
 ```bash
-curl http://localhost:8000/health
-```
-
-All four dependencies (`api`, `postgres`, `pgvector`, `redis`) should report `ok`.
-The endpoint always returns HTTP 200 and puts the per-dependency breakdown in the
-body, so the dashboard can show you *which* dependency is down.
-
-### Replaying a batch
-
-A batch is one Elliptic time step. Replaying it scores every transaction,
-takes the top 1% by rank, and gathers evidence for each resulting case:
-
-```bash
-curl -X POST http://localhost:8000/api/batches/35/replay   # returns 202
-curl http://localhost:8000/api/batches/35                  # poll progress
-curl "http://localhost:8000/api/queue?timestep=35&limit=5"
-curl http://localhost:8000/api/cases/1
-```
-
-Job state is read from the `batch_runs` table, not from Celery's result
-backend, so it survives a worker restart. Replay is idempotent — running it
-twice produces the same rows.
-
-Only time steps 35-49 can be replayed. Earlier ones are training data, and
-scoring them would be meaningless.
-
-> After adding or renaming a Celery task, restart the worker
-> (`docker compose restart worker`). Celery registers tasks at boot, and an
-> unknown task name is rejected by the consumer rather than queued.
-
-To prove the broker path alone:
-
-```bash
-curl -X POST "http://localhost:8000/api/tasks/ping?message=hello"
-curl http://localhost:8000/api/tasks/<task_id>
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev          # http://localhost:5173
-```
-
-Vite proxies `/health` and `/api` to the API in development, so there is nothing to
-configure.
-
-## Development
-
-Backend, from `backend/`:
-
-```bash
-uv sync                              # core + dev dependencies
-uv sync --extra gnn                  # add torch / PyG / xgboost
-uv sync --extra gnn --extra train    # ...plus MLflow, for training
-uv run ruff check . && uv run ruff format --check .
-uv run pytest                        # unit tests
-uv run pytest -m integration         # needs the compose stack up
-uv run alembic upgrade head          # apply migrations
-uv run alembic check                 # models and migrations agree
-uv run alembic revision --autogenerate -m "..."
-```
-
-Frontend, from `frontend/`:
-
-```bash
-npm run check        # lint + typecheck + build
+cd frontend      # <- required
+npm install      # first time only
 npm run dev
 ```
 
-Tests marked `integration` need a live Postgres and Redis; they skip themselves when
-the stack is not running, so a plain `uv run pytest` works anywhere.
+If both are running they will fight over port 5173, so stop the container
+first: `docker compose stop frontend`.
 
-## Machine learning
+The dev server proxies `/api` and `/health` to the API, so the browser talks to
+one origin and CORS never enters the picture during development.
 
-```bash
-cd backend
-uv sync --extra gnn --extra train
+## Environment variables
 
-python -m argus.ml.cli download   # Elliptic from the PyG mirror, ~150 MB, once
-python -m argus.ml.cli inspect    # dataset shape and split sizes
-python -m argus.ml.cli ingest     # -> Postgres   (~47 s)
-python -m argus.ml.cli train      # all three models, CPU  (~3 min)
-python -m argus.ml.cli embed      # -> pgvector   (~5 min)
+Copy `.env.example` to `.env`. It is git-ignored and must never be committed.
 
-mlflow ui --backend-store-uri sqlite:///../mlflow.db   # experiment history
-```
+| Variable | Default | Notes |
+|---|---|---|
+| `APP_ENV` | `local` | `production` enables startup checks that reject development defaults |
+| `LOG_LEVEL` | `INFO` | |
+| `DATABASE_URL` | `…@localhost:5433/argus` | SQLAlchemy URL — needs the `postgresql+psycopg://` scheme |
+| `REDIS_URL` | `redis://localhost:6380/0` | Broker; db 1 is the result backend |
+| `CORS_ORIGINS` | `http://localhost:5173,…` | Comma-separated. Production must set its real frontend origin. |
+| `ALERT_BUDGET` | `0.01` | Fraction of each batch that becomes an alert |
+| `LLM_PROVIDER` | `stub` | `stub` or `gemini` |
+| `GEMINI_API_KEY` | *(empty)* | Required only when `LLM_PROVIDER=gemini` |
+| `GEMINI_MODEL` | `gemini-3.6-flash` | |
+| `EMBEDDING_MODEL` | `gemini-embedding-001` | |
+| `EMBEDDING_DIM` | `768` | Must match the `vector(768)` column |
 
-The raw dataset (~950 MB once extracted) and the trained model binaries are
-git-ignored; each model's `metadata.json` is committed so any score stays
-traceable to the run that produced it.
+**No API key is needed.** With `LLM_PROVIDER=stub` the corpus is embedded by a
+deterministic hashing vectoriser and narratives are built from the evidence by
+rule, so the whole pipeline runs and every test passes offline.
 
-See [docs/modeling.md](docs/modeling.md) for the split, the leakage controls, the
-alert-budget metric and the results.
-
-Then replay a batch to populate the queue:
-
-```bash
-python -m argus.ml.cli ingest     # if not already done
-python -m argus.ml.cli embed      # embeddings + graph scores -> pgvector
-curl -X POST http://localhost:8000/api/batches/35/replay
-```
-
-## Investigation evidence
-
-Each queued case carries deterministic, cited evidence — no language model is
-involved at this stage:
-
-| Kind | What it says |
-|---|---|
-| `heuristic` | A network shape fired: fan-out, fan-in, layering chain, dense cluster |
-| `structural_similarity` | This transaction's GraphSAGE embedding resembles a confirmed illicit one from the training range |
-| `graph_model_corroboration` | GraphSAGE's independent score, quoted as a second opinion |
-| `flagged_neighbour` / `confirmed_neighbour` | A connected transaction the system already distrusts |
-
-Every item stores its provenance as a foreign key, not free text, so an
-analyst can follow any claim back to the row that produced it.
-
-Once a case is investigated it also carries a written assessment, a typology,
-a deterministic confidence score and quoted typology sources — see
-[docs/agent.md](docs/agent.md).
-
-```bash
-cd backend
-python -m argus.agent.cli ingest-corpus         # 27 chunks from 13 sources
-python -m argus.agent.cli investigate 1         # one case
-python -m argus.agent.cli investigate-top -h    # rebuild a demo state
-curl -X POST http://localhost:8000/api/cases/1/investigate    # async, via Celery
-curl http://localhost:8000/api/cases/1/sources                # what it cited
-```
-
-> Running the test suite re-ingests the corpus (its fixtures do), which clears
-> citations that no longer resolve and leaves the corpus embedded by the stub.
-> After testing, re-run `ingest-corpus` and `investigate-top` to restore a
-> working demo state.
-
-### Using Gemini
+## Gemini configuration
 
 Get a key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-(free tier covers `gemini-3.6-flash` and `gemini-embedding-001`), then in
-`.env`:
+— the free tier covers `gemini-3.6-flash` and `gemini-embedding-001`. In `.env`:
 
 ```
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=your-key
 ```
 
-Re-run `ingest-corpus` afterwards: corpus and query vectors must come from the
-same embedding model, and retrieval refuses a mismatch rather than returning
-confident nonsense.
+Then embed the corpus in the Gemini space:
 
-See [docs/investigation.md](docs/investigation.md) and
-[docs/agent.md](docs/agent.md).
+```bash
+cd backend
+uv run python -m argus.agent.cli ingest-corpus
+```
 
-## Database schema
+Corpus and query vectors must come from the same model. Both spaces are stored
+side by side and retrieval selects the active one, so switching providers is
+non-destructive — but each space needs ingesting once.
 
-Ten tables, created in one migration:
+## Running the ML pipeline
 
-| Table | Holds |
+```bash
+cd backend
+uv sync --extra gnn --extra train        # torch, PyG, xgboost, mlflow
+
+uv run python -m argus.ml.cli download   # ~150 MB, once
+uv run python -m argus.ml.cli inspect    # dataset shape and split sizes
+uv run python -m argus.ml.cli ingest     # -> Postgres  (~47 s)
+uv run python -m argus.ml.cli train      # all three models  (~3 min, CPU)
+uv run python -m argus.ml.cli embed      # embeddings + graph scores -> pgvector
+```
+
+`train` evaluates the held-out split once and applies a promotion rule fixed
+before that split was read. See [docs/modeling.md](docs/modeling.md).
+
+## Running a batch replay
+
+A batch is one Elliptic time step. Replay scores every transaction, takes the
+top 1% by rank, and gathers deterministic evidence for each case.
+
+```bash
+curl -X POST http://localhost:8000/api/batches/35/replay   # 202, runs async
+curl http://localhost:8000/api/batches/35                  # poll progress
+```
+
+Job state is read from the `batch_runs` table, not Celery's result backend, so
+it survives a worker restart. Replay is idempotent — running it twice produces
+the same rows and never disturbs a written investigation.
+
+Only time steps 35–49 can be replayed; earlier ones are training data.
+
+> After adding or renaming a Celery task, restart the worker
+> (`docker compose restart worker`). Celery registers tasks at boot.
+
+## Running an investigation
+
+```bash
+curl -X POST http://localhost:8000/api/cases/1/investigate   # 202, async
+curl http://localhost:8000/api/cases/1                       # poll
+curl http://localhost:8000/api/cases/1/sources               # what it cited
+```
+
+Or from the CLI:
+
+```bash
+cd backend
+uv run python -m argus.agent.cli investigate 1
+uv run python -m argus.agent.cli investigate-top --count 8   # rebuild a demo state
+```
+
+See [docs/agent.md](docs/agent.md) for the workflow, the grounding rules and
+the citation validator.
+
+## Running tests
+
+```bash
+cd backend
+uv run pytest                    # everything available in this environment
+uv run pytest -m "not integration and not dataset"   # offline, no stack needed
+uv run ruff check . && uv run ruff format --check .
+uv run alembic check             # models and migrations agree
+```
+
+Integration tests skip themselves when the stack or dataset is absent, so a
+plain `uv run pytest` works on a fresh clone.
+
+Tests run against the stub provider and use their own throwaway case and their
+own embedding space, so **a test run never disturbs real investigation state**.
+
+Frontend:
+
+```bash
+cd frontend
+npm run check     # lint + typecheck + production build
+```
+
+## Deployment
+
+Free, on Render and Supabase. Exact steps, including what to click and what to
+paste where: **[docs/deployment.md](docs/deployment.md)**.
+
+| Component | Where |
 |---|---|
-| `users` | Analyst accounts |
-| `transactions` | One row per transaction: timestep, label, raw features |
-| `edges` | Directed transaction → transaction flows |
-| `batch_runs` | One replayed batch (a batch is one timestep) |
-| `risk_scores` | Model score per transaction, tagged with the model version |
-| `transaction_embeddings` | GraphSAGE node embeddings, `vector(64)` |
-| `case_reports` | One investigation: score, queue rank, graph score, confidence |
-| `evidence_items` | Cited facts; provenance is a real foreign key |
-| `reviews` | Analyst decisions |
-| `typology_references` | AML corpus chunks, `vector(768)` |
+| Frontend | Render Static Site |
+| API | Render Web Service (Docker `api` target) |
+| Database | Supabase Postgres + pgvector |
+| Worker + Redis | Local only — not free on Render |
 
-Both vector columns have HNSW cosine indexes. Enumerated values are stored as
-`VARCHAR` with `CHECK` constraints, defined once in `argus/db/enums.py`, so adding a
-value later is a constraint change rather than a PostgreSQL `ALTER TYPE`.
+The hosted app serves the queue, cases, evidence, investigations and citations
+from a snapshot exported by `argus.ml.cli export-demo`, and **analyst decisions
+write live**. Batch replay and investigation run locally.
+
+## CI/CD
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to
+`main` and every pull request:
+
+- **Backend** — ruff lint and format, `alembic upgrade head` from an empty
+  database, `alembic check` for model/migration drift, and pytest against a
+  real Postgres+pgvector service container.
+- **Frontend** — `npm ci` then `npm run check` (lint, typecheck, build).
+
+No credentials: the suite runs on the deterministic stub provider, and no ML
+training or real model call happens in CI. A separate
+[`gemini-smoke.yml`](.github/workflows/gemini-smoke.yml) checks the live Gemini
+contract; it is manual-only and skips without a key.
+
+**Deployment is triggered by a push to `main`** — Render watches the branch
+directly (`autoDeploy: true`). CI and deploy run in parallel; protect `main` if
+you want a green tick to gate it.
+
+## Known limitations
+
+Honest, and each is a deliberate choice rather than an oversight.
+
+- **No sign-in.** The PRD describes analysts signing in; there is one seeded
+  demo analyst and decisions are attributed to them, labelled as such in the
+  UI. Adding real authentication would be a day of work that demonstrates
+  nothing the rest of the project does not already show.
+- **The worker and Redis are not hosted.** Neither has a free tier. The
+  architecture supports it — uncomment two blocks in `render.yaml` — but the
+  deployed demo serves precomputed results and says so.
+- **GraphSAGE lost the scoring comparison** (0.054 vs 0.374 recall at a 1%
+  budget). It is retained for the investigation layer, where it produces
+  evidence a tabular model cannot. This is reported, not hidden.
+- **The structural heuristics rarely fire.** XGBoost's top 1% is almost
+  entirely degree-≤1 transactions, so fan-in/fan-out/dense-cluster almost never
+  trigger. The thresholds were not lowered to force hits.
+- **Elliptic is anonymised**, so amount- and timing-based typologies are not
+  computable. The PRD's heuristics were redefined as network shapes the data
+  can actually evidence.
+- **Free-tier behaviour.** Render web services cold-start (~50 s after 15
+  minutes idle); Supabase projects pause after 7 days idle.
+- **The typology corpus is a curated paraphrase**, not verbatim source text, so
+  it can ship with the repository. Every note cites the document to read for
+  authoritative wording.
+
+## Documentation
+
+| Document | Covers |
+|---|---|
+| [docs/prd.md](docs/prd.md) | Product requirements |
+| [docs/modeling.md](docs/modeling.md) | Dataset, splits, leakage controls, model comparison |
+| [docs/investigation.md](docs/investigation.md) | Replay, alert budget, deterministic evidence, pgvector |
+| [docs/agent.md](docs/agent.md) | RAG, LangGraph, Gemini, grounding, confidence |
+| [docs/design.md](docs/design.md) | Visual system and interface decisions |
+| [docs/deployment.md](docs/deployment.md) | Hosting, step by step |
+| [CLAUDE.md](CLAUDE.md) | Working notes and locked decisions |
 
 ## Licence
 

@@ -46,6 +46,15 @@ services:
       # Bind mount for hot reload in development.
       - ./backend:/app
     command: uvicorn argus.api.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      # Liveness only. /health reports dependency status in its body and
+      # deliberately still returns 200 when one is down, so this checks that
+      # the process serves -- not that the whole system is well.
+      test: ["CMD-SHELL", "python -c \"import urllib.request as u; u.urlopen('http://localhost:8000/health', timeout=5)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,11 +77,43 @@ services:
       - ./models:/app/models:ro
       - ./data:/app/data:ro
     command: celery -A argus.jobs.celery_app:celery_app worker --loglevel=info --concurrency=2
+    healthcheck:
+      # `celery inspect ping` asks this worker over the broker, so it fails if
+      # either the worker or its Redis connection is gone.
+      test: ["CMD-SHELL", "celery -A argus.jobs.celery_app:celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 40s
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
 
+  # The Vite dev server, so `docker compose up` brings up the whole product
+  # including the UI. It bind-mounts the source and hot-reloads exactly like
+  # running `npm run dev` by hand; node_modules stays in a named volume so the
+  # container's Linux binaries are not overwritten by the host's.
+  #
+  # Production does not use this: the frontend deploys as a static bundle
+  # built by the host (see docs/deployment.md).
+  frontend:
+    image: node:24-alpine
+    working_dir: /app
+    environment:
+      # Empty means "same origin": Vite proxies /api and /health to the API.
+      VITE_API_BASE_URL: ""
+      VITE_DEV_API_TARGET: http://api:8000
+    volumes:
+      - ./frontend:/app
+      - frontend_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - api
+
 volumes:
   postgres_data:
+  frontend_modules:

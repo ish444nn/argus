@@ -145,8 +145,10 @@ def test_cases_are_created_with_their_scores_and_model_version(db_session, repla
 
     assert 0.0 <= row.risk_score <= 1.0
     assert row.model_version
-    assert row.status == CaseStatus.QUEUED.value
     assert row.batch_run_id == replayed.batch_run_id
+    # A case is `queued` until investigated, and stays whatever it became
+    # afterwards -- a re-replay must not downgrade a written report.
+    assert row.status in {CaseStatus.QUEUED.value, CaseStatus.READY.value}
 
 
 def test_replay_refuses_a_time_step_with_no_transactions(db_session, embedded):
@@ -508,3 +510,64 @@ def test_a_failed_replay_is_visible_rather_than_silent(db_session, ingested, tmp
 
     db_session.execute(text("DELETE FROM batch_runs WHERE timestep = :ts"), {"ts": timestep})
     db_session.commit()
+
+
+def test_replay_does_not_destroy_an_investigation(db_session, replayed):
+    """Replay regenerates deterministic evidence only.
+
+    It used to clear *all* of a case's evidence, which deleted the typology
+    citations an investigation had written and left a stored narrative citing
+    sources that no longer existed. It also reset the case to `queued`,
+    discarding the report. Both are regressions worth pinning down.
+    """
+    row = db_session.execute(
+        text("""
+        SELECT c.id, c.tx_id, t.timestep, c.narrative, c.status
+        FROM case_reports c
+        JOIN transactions t ON t.tx_id = c.tx_id
+        WHERE c.narrative IS NOT NULL AND t.timestep = :ts
+        LIMIT 1
+        """),
+        {"ts": REPLAY_TIMESTEP},
+    ).one_or_none()
+    if row is None:
+        pytest.skip("no investigated case in this batch")
+
+    def citations() -> int:
+        return db_session.execute(
+            text("SELECT count(*) FROM evidence_items WHERE case_report_id = :c AND kind = :k"),
+            {"c": row.id, "k": EvidenceKind.TYPOLOGY_REFERENCE.value},
+        ).scalar_one()
+
+    before = citations()
+    replay_service.replay_batch(db_session, REPLAY_TIMESTEP)
+    after = db_session.execute(
+        text("SELECT narrative, status FROM case_reports WHERE id = :c"),
+        {"c": row.id},
+    ).one()
+
+    assert citations() == before, "replay deleted the investigation's citations"
+    assert after.narrative == row.narrative, "replay discarded the narrative"
+    assert after.status == row.status, "replay reset an investigated case"
+
+
+def test_replay_still_replaces_its_own_evidence(db_session, replayed):
+    """The scoping must not turn replay into an append."""
+    case_id = db_session.execute(
+        text("""
+        SELECT c.id FROM case_reports c
+        JOIN transactions t ON t.tx_id = c.tx_id
+        WHERE t.timestep = :ts ORDER BY c.queue_rank LIMIT 1
+        """),
+        {"ts": REPLAY_TIMESTEP},
+    ).scalar_one()
+
+    def deterministic() -> int:
+        return db_session.execute(
+            text("SELECT count(*) FROM evidence_items WHERE case_report_id = :c AND kind <> :k"),
+            {"c": case_id, "k": EvidenceKind.TYPOLOGY_REFERENCE.value},
+        ).scalar_one()
+
+    before = deterministic()
+    replay_service.replay_batch(db_session, REPLAY_TIMESTEP)
+    assert deterministic() == before

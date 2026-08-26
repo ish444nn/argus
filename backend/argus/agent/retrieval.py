@@ -107,7 +107,7 @@ def retrieve(
         return RetrievedKnowledge(query=query.text, patterns=[])
 
     embedder = embedder or get_embedder()
-    _assert_same_embedding_space(session, embedder)
+    _assert_space_present(session, embedder)
 
     vector = embedder.embed([query.text])[0]
     literal = "[" + ",".join(f"{value:.9g}" for value in vector) + "]"
@@ -127,6 +127,10 @@ def retrieve(
             FROM typology_references r
             WHERE r.patterns && CAST(:patterns AS text[])
               AND r.embedding IS NOT NULL
+              -- Select the active embedding space. Several may be stored (the
+              -- stub one the tests use, the real one a deployment uses); a
+              -- query must only ever compare against vectors from its own.
+              AND r.embedding_model = :embedding_model
         )
         SELECT * FROM ranked
         WHERE rank_in_source <= :per_source AND distance <= :max_distance
@@ -136,6 +140,7 @@ def retrieve(
         {
             "vector": literal,
             "patterns": query.patterns,
+            "embedding_model": embedder.model_name,
             "per_source": PER_SOURCE_LIMIT,
             "max_distance": MAX_COSINE_DISTANCE,
             "k": k,
@@ -162,12 +167,12 @@ def retrieve(
     return RetrievedKnowledge(chunks=chunks, query=query.text, patterns=query.patterns)
 
 
-def _assert_same_embedding_space(session: Session, embedder: Embedder) -> None:
-    """Refuse to compare vectors from different models.
+def _assert_space_present(session: Session, embedder: Embedder) -> None:
+    """Fail loudly when the active embedder has no corpus stored.
 
-    A corpus embedded by the stub and queried by Gemini would return confident
-    nonsense rather than an error, which is the worst of both. Re-run
-    `argus.agent.cli ingest-corpus` after changing provider.
+    Retrieval selects rows matching the active embedding space, so a mismatch
+    can no longer return nonsense -- it returns nothing, which is quieter and
+    just as wrong. This turns that silence into an error naming the fix.
     """
     stored = (
         session.execute(text("SELECT DISTINCT embedding_model FROM typology_references"))
@@ -177,6 +182,7 @@ def _assert_same_embedding_space(session: Session, embedder: Embedder) -> None:
     stored = [model for model in stored if model]
     if stored and embedder.model_name not in stored:
         raise ValueError(
-            f"corpus was embedded with {stored} but the active embedder is "
-            f"{embedder.model_name!r}; re-ingest the corpus"
+            f"no corpus embedded with {embedder.model_name!r}; stored spaces are "
+            f"{stored}. Run `python -m argus.agent.cli ingest-corpus` with this "
+            "provider active."
         )

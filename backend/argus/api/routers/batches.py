@@ -13,9 +13,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from argus.api.deps import SessionDep, SettingsDep
+from argus.api.deps import SessionDep, SettingsDep, dispatch
 from argus.api.schemas import BatchRunOut, ReplayDispatched
-from argus.jobs.celery_app import celery_app
 from argus.services import queue as queue_service
 
 router = APIRouter(prefix="/api/batches", tags=["batches"])
@@ -38,9 +37,9 @@ def start_replay(timestep: int, session: SessionDep, settings: SettingsDep) -> R
             ),
         )
 
-    async_result = celery_app.send_task("argus.replay_batch", args=[timestep])
+    task_id = dispatch("argus.replay_batch", timestep)
     return ReplayDispatched(
-        task_id=async_result.id,
+        task_id=task_id,
         timestep=timestep,
         alert_budget=settings.alert_budget,
         status_url=f"/api/batches/{timestep}",

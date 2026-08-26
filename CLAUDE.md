@@ -1,9 +1,9 @@
 # CLAUDE.md — Argus working notes
 
 Source of truth for requirements: `docs/prd.md`. This file is *how* we build it.
-Status: **Phase 5 complete** — analyst product: app shell, operations overview,
-risk queue, case dossier, investigation panel, review workflow. Real Gemini
-verified end to end. Outstanding vs the PRD: analyst sign-in.
+Status: **Phase 6 complete — project finished.** Hardening, CI, deployment
+config, docs. All six phases done. Outstanding vs the PRD by decision: analyst
+sign-in (documented as a known limitation, not an oversight).
 
 ## What this project is
 
@@ -291,6 +291,35 @@ MEASURED:
   serif / ember / rounded / mobile-first): Argus is cool dark slate, IBM Plex
   Sans + Mono, ~0 radius, no shadows, desktop-dense. Signature = the provenance
   rail (solid = measured, dashed = model, double = cited).
+
+## Phase 6 findings
+
+- **Test isolation is by embedding space, not a separate database.**
+  `typology_references` is now keyed by (typology_id, chunk_index,
+  embedding_model), ingest replaces only the active embedder's rows, and
+  retrieval selects them. Tests (stub) and the demo (gemini) coexist. VERIFIED:
+  a full pytest run leaves gemini citations/reports/ready-cases unchanged.
+- **Two real bugs found while doing that.** (a) `evidence.persist` deleted ALL
+  evidence, so replay wiped an investigation's typology citations -- now scoped
+  via `kinds=DETERMINISTIC_KINDS`. (b) replay reset an investigated case to
+  `queued`, discarding the report -- now only new cases start queued.
+- **Agent tests build their own throwaway case** rather than investigating the
+  top real case with the stub provider. Deleted on teardown.
+- **`send_task` hangs for ~30s when Redis is down.** Celery's transport options
+  do not bound the publish path. `api.deps.dispatch` calls
+  `connection_for_write().ensure_connection(max_retries=0, timeout=3)` first and
+  returns 503 in ~4s. Do not remove this.
+- **`control.ping()` costs a flat second** unless given `limit=1`; /health went
+  1015ms -> 10ms.
+- **CORS is env-driven** (`CORS_ORIGINS`) and `APP_ENV=production` refuses to
+  start on localhost DB/Redis/CORS values.
+- **`docker compose up` now includes the frontend** (Vite dev server, bind
+  mount, `VITE_DEV_API_TARGET=http://api:8000`). `npm run dev` on the host still
+  works from `frontend/` -- it fails from the repo root, which is what the
+  student hit.
+- Deployment: Render (static + docker api) + Supabase. Worker/Redis stay local.
+  `argus.ml.cli export-demo` writes 55MB of seed SQL (features NULL); verified
+  loading into a clean migrated database -> 90MB, 0 dangling citations.
 
 ## Phase end protocol
 

@@ -153,11 +153,20 @@ def ingest(
     directory: Path | None = None,
     embedder: Embedder | None = None,
 ) -> dict[str, int]:
-    """Load, chunk, embed and store the corpus. Replaces what was there.
+    """Load, chunk, embed and store the corpus for the active embedder.
 
-    Wholesale replacement rather than an upsert: the corpus is small, it is a
-    build artefact of the repository, and a half-updated corpus embedded by two
-    different models would be worse than a rebuilt one.
+    Replaces only this embedder's rows. Two embedding spaces coexist -- the
+    stub one the tests use and the Gemini one a real deployment uses -- and
+    re-ingesting either leaves the other intact.
+
+    That isolation is the point. Before it, running the test suite (which
+    forces the stub provider) silently replaced a Gemini-embedded corpus, and
+    the next real investigation was correctly refused by the embedding-space
+    guard. Making the embedder part of a chunk's identity fixes the collision
+    at its source rather than weakening the guard.
+
+    Within one space the replace is still wholesale: the corpus is small and a
+    half-updated one would be worse than a rebuilt one.
     """
     embedder = embedder or get_embedder()
     chunks = load_corpus(directory)
@@ -171,7 +180,9 @@ def ingest(
                 f"embedder returned {len(vector)} dimensions, expected {embedder.dimension}"
             )
 
-    session.execute(delete(TypologyReference))
+    session.execute(
+        delete(TypologyReference).where(TypologyReference.embedding_model == embedder.model_name)
+    )
     session.add_all(
         TypologyReference(
             typology_id=chunk.typology_id,
@@ -189,11 +200,13 @@ def ingest(
         )
         for chunk, vector in zip(chunks, vectors, strict=True)
     )
-    # Replacing the corpus renumbers it, and existing citations point at rows
-    # that no longer exist -- the foreign key sets them to NULL rather than
-    # failing. A report citing a source that cannot be resolved is worse than
-    # one citing nothing, so those are removed and the affected cases counted:
-    # they need re-investigating against the new corpus.
+    # Replacing this space renumbers its rows, so citations into it are left
+    # dangling -- the foreign key sets them to NULL rather than failing. A
+    # report citing a source that cannot be resolved is worse than one citing
+    # nothing, so those are removed and the affected cases counted: they need
+    # re-investigating against the rebuilt corpus. Citations into *other*
+    # embedding spaces are untouched, which is what keeps a test run from
+    # destroying a real demo state.
     orphaned = (
         session.execute(
             text("""
@@ -227,6 +240,7 @@ def ingest(
         "chunks": len(chunks),
         "sources": sources,
         "dimension": embedder.dimension,
+        "embedding_model": embedder.model_name,
         "orphaned_citations_removed": len(orphaned),
     }
 

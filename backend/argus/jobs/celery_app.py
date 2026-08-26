@@ -29,4 +29,24 @@ celery_app.conf.update(
     # work distributed evenly if a second worker is ever added.
     worker_prefetch_multiplier=1,
     result_expires=3600,
+    # Fail fast when the broker is unreachable.
+    #
+    # Celery's defaults retry a publish for a very long time, so dispatching a
+    # task with Redis down made the API request hang rather than return. An
+    # analyst pressing a button deserves an error, not a spinner: two quick
+    # attempts, then raise, and the route turns that into a 503 naming the
+    # cause.
+    broker_connection_retry_on_startup=True,
+    broker_transport_options={
+        "socket_connect_timeout": 2,
+        "socket_timeout": 2,
+        "max_retries": 1,
+    },
+    task_publish_retry=True,
+    task_publish_retry_policy={
+        "max_retries": 1,
+        "interval_start": 0,
+        "interval_step": 0.2,
+        "interval_max": 0.5,
+    },
 )

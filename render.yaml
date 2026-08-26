@@ -1,0 +1,117 @@
+# Render blueprint for Argus.
+#
+# Two services are deployed here and two are not, for a reason worth stating
+# plainly: Render's free tier covers web services and static sites, but a
+# background worker and a managed Redis both cost money. Argus therefore
+# deploys the read side -- the part an analyst actually uses -- and runs the
+# batch-replay and investigation jobs locally, seeding their results into the
+# hosted database.
+#
+# That is a deliberate split, not a missing feature. Recording an analyst
+# decision still writes live against the hosted database, because that is a
+# PRD success criterion and demonstrating it with a screenshot would not count.
+#
+# To run the whole system hosted, uncomment the `worker` and `redis` blocks
+# below and expect roughly $7-14/month. Nothing else changes: the worker runs
+# the same image and reads the same configuration.
+#
+# Deployment is triggered by a push to `main`. See docs/deployment.md.
+
+services:
+  # --- API ----------------------------------------------------------------
+  # Docker rather than a native Python environment, so the deployed image is
+  # the same one that runs locally. The `api` target carries no torch,
+  # xgboost or numpy -- it reads precomputed rows.
+  - type: web
+    name: argus-api
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerTarget: api
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      # Supabase connection string. Set in the Render dashboard, never here:
+      # a blueprint is committed and a database password is not.
+      - key: DATABASE_URL
+        sync: false
+      # The API dispatches jobs but never runs them. Without a hosted worker
+      # this points at nothing and dispatch fails cleanly, which is the honest
+      # behaviour -- the UI disables the trigger and says why.
+      - key: REDIS_URL
+        sync: false
+      # The deployed frontend's origin. Anything else is refused by CORS.
+      - key: CORS_ORIGINS
+        value: https://argus-web.onrender.com
+      # The API never calls a model; it serves reports the worker already
+      # wrote. `stub` here means "no credentials on the web service", which is
+      # one less place a key can leak.
+      - key: LLM_PROVIDER
+        value: stub
+
+  # --- Frontend -----------------------------------------------------------
+  # A static bundle. No Docker: Render builds it from source, which is both
+  # free and faster than shipping an image to serve seven files.
+  - type: web
+    name: argus-web
+    runtime: static
+    plan: free
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: ./frontend/dist
+    autoDeploy: true
+    pullRequestPreviewsEnabled: false
+    envVars:
+      # Absolute, because in production the frontend and API are different
+      # origins and there is no dev-server proxy to hide that.
+      - key: VITE_API_BASE_URL
+        value: https://argus-api.onrender.com
+    routes:
+      # Client-side routing: /queue and /cases/:id are React Router paths, not
+      # files on disk, so everything unmatched falls through to index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+  # --- Worker and Redis: paid, and therefore not enabled ------------------
+  #
+  # - type: worker
+  #   name: argus-worker
+  #   runtime: docker
+  #   plan: starter          # no free tier for background workers
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerTarget: worker   # adds torch, PyG, xgboost, LangGraph, google-genai
+  #   autoDeploy: true
+  #   envVars:
+  #     - key: APP_ENV
+  #       value: production
+  #     - key: DATABASE_URL
+  #       sync: false
+  #     - key: REDIS_URL
+  #       fromService:
+  #         type: redis
+  #         name: argus-redis
+  #         property: connectionString
+  #     - key: LLM_PROVIDER
+  #       value: gemini
+  #     - key: GEMINI_API_KEY
+  #       sync: false        # set in the dashboard, never in this file
+  #
+  # - type: redis
+  #   name: argus-redis
+  #   plan: starter          # no free tier
+  #   maxmemoryPolicy: noeviction   # a dropped task is a lost investigation
+  #   ipAllowList: []

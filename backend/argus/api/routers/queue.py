@@ -11,7 +11,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
-from argus.api.deps import SessionDep, SettingsDep
+from argus.api.deps import SessionDep, SettingsDep, dispatch
 from argus.api.schemas import (
     CaseDetail,
     CitedSource,
@@ -21,7 +21,6 @@ from argus.api.schemas import (
     QueuePage,
 )
 from argus.db.enums import CaseStatus, Decision, QueueTier
-from argus.jobs.celery_app import celery_app
 from argus.services import investigation as investigation_service
 from argus.services import queue as queue_service
 
@@ -102,9 +101,9 @@ def start_investigation(
     if queue_service.get_case(session, case_id) is None:
         raise HTTPException(status_code=404, detail=f"no case {case_id}")
 
-    async_result = celery_app.send_task("argus.investigate_case", args=[case_id])
+    task_id = dispatch("argus.investigate_case", case_id)
     return InvestigationDispatched(
-        task_id=async_result.id,
+        task_id=task_id,
         case_id=case_id,
         provider=settings.llm_provider,
         status_url=f"/api/cases/{case_id}",

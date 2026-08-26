@@ -1,0 +1,122 @@
+name: CI
+
+# Every push to main and every pull request. Nothing here calls a real model
+# or trains anything: the suite runs against the stub provider, so it needs no
+# credentials and finishes in a couple of minutes.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A new push supersedes an in-flight run on the same branch.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+
+    services:
+      # The real database, because most of what is worth testing is SQL:
+      # pgvector retrieval, the alert-budget ranking, evidence provenance.
+      # SQLite could not run any of it.
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: argus
+          POSTGRES_PASSWORD: argus
+          POSTGRES_DB: argus
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U argus -d argus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      # Services are published on standard ports here, unlike Compose, which
+      # shifts them to avoid clashing with a developer's local install.
+      DATABASE_URL: postgresql+psycopg://argus:argus@localhost:5432/argus
+      REDIS_URL: redis://localhost:6379/0
+      APP_ENV: test
+      # No API key in CI. Everything runs on the deterministic stub provider,
+      # which is why the suite is meaningful without credentials.
+      LLM_PROVIDER: stub
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install dependencies
+        working-directory: backend
+        # `--extra agent` brings in LangGraph and the Gemini SDK, which the
+        # workflow tests import. The `gnn` extra (torch, PyG, xgboost) is
+        # deliberately excluded: it is ~4 GB and only the ML pipeline needs it,
+        # so the tests that touch it self-skip instead.
+        run: uv sync --locked --extra agent
+
+      - name: Enable pgvector
+        run: |
+          PGPASSWORD=argus psql -h localhost -U argus -d argus \
+            -c "CREATE EXTENSION IF NOT EXISTS vector"
+
+      - name: Lint
+        working-directory: backend
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Migrate from an empty database
+        working-directory: backend
+        run: uv run alembic upgrade head
+
+      - name: Check migrations match the models
+        working-directory: backend
+        # Catches a model edited without a migration, which otherwise only
+        # surfaces on the next deployment.
+        run: uv run alembic check
+
+      - name: Test
+        working-directory: backend
+        # Integration tests self-skip when the Elliptic dataset is absent, and
+        # it is absent here by design: it is 690 MB and downloading it on every
+        # run would cost more than it proves.
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint, typecheck and build
+        working-directory: frontend
+        # One script, the same one used locally, so CI cannot drift from what
+        # a developer runs before pushing.
+        run: npm run check

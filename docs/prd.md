@@ -2,7 +2,7 @@
 
 *A risk-assessment and investigation system for financial transaction networks — graph-based risk scoring paired with an agent that gathers and cites evidence for every case it surfaces.*
 
-**Status:** Planned
+**Status:** Implemented
 **Last updated:** August 2026
 
 ---
@@ -39,6 +39,8 @@ Argus does not connect to a live blockchain or banking feed, does not take auton
 
 **Analysts** are the system's only user role. An analyst reviews the queue of flagged transactions, opens a case to see the model's score alongside the agent's evidence, and records a decision: confirmed, dismissed, or needs more evidence. There is no separate "operator" role — ingestion and scoring run as background processes, not through a user-facing flow.
 
+Because there is a single role and no data an analyst may see that another may not, authentication carries no authorisation weight in this version: it would establish who recorded a decision, and nothing else. Decisions are therefore attributed to a single seeded analyst account, and the interface says so where they are recorded rather than implying a signed-in user. Adding sign-in is a small, self-contained change to the review path when a second analyst exists to distinguish.
+
 ## 5. Core flows
 
 ### Scoring and investigation (system flow)
@@ -52,11 +54,13 @@ Argus does not connect to a live blockchain or banking feed, does not take auton
 
 ### Analyst
 
-1. Sign in.
-2. View the queue of flagged transactions, ordered by risk score.
-3. Open a case: see the transaction, its immediate neighbourhood, the model's score, and the agent's report with each claim linked to the specific connected transaction it's based on.
+1. Open the operations view: what has been processed, and how much is waiting.
+2. View the queue of flagged transactions, ordered by risk score, filtered by batch or by whether a decision has been recorded.
+3. Open a case: see the transaction, its immediate neighbourhood, the model's score, and the agent's report with each claim linked to the specific connected transaction or retrieved passage it rests on.
 4. Record a decision — confirmed, dismissed, or needs more evidence.
-5. Decisions are logged against the case for later review; they are not fed back into training automatically in this version.
+5. Decisions are logged against the case for later review; they are appended rather than replaced, so what was concluded and when survives. They are not fed back into training automatically in this version.
+
+Decisions are attributed to a single seeded analyst; see section 4 for why sign-in is deferred.
 
 ## 6. Functional requirements
 
@@ -143,6 +147,10 @@ Transaction graph (batched) ──▶ Feature + graph pipeline ──▶ Risk mo
 One Docker image is built with two targets: a light one for the API, and one carrying the machine-learning dependencies for the worker. Only the worker needs them, so the deployed web service stays small.
 
 A managed queue and a always-on worker are the two components with no free tier, so they run locally rather than being hosted. The public demo is therefore seeded with the results of a batch replay run locally — the transaction metadata, edges, scores, case reports, evidence and embeddings for the test range — while analyst decisions are still written live against the hosted database, since recording a decision is a requirement of the product rather than a demonstration of it. Batch replay is disabled in the hosted interface, with the reason stated in the interface rather than left for the reader to infer.
+
+The seeded snapshot omits the raw feature vectors. They are the largest thing in the database by an order of magnitude and only the scoring job reads them, so a deployment that does not score has no use for them; the schema treats the column as optional for exactly this reason.
+
+Deployment follows a push to the default branch. Continuous integration lints, migrates a database from empty, checks that the migrations still describe the models, and runs the test suite against a real database — with no credentials, because the suite runs against the deterministic provider rather than a live model.
 
 ### Data model
 
