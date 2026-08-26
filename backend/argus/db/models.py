@@ -253,11 +253,12 @@ class CaseReport(Base):
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=enums.CaseStatus.QUEUED, index=True
     )
-    # Null until the investigation runs. Computed deterministically from
-    # evidence -- never self-reported by the language model.
+    # Evidence confidence: how strongly the deterministic evidence supports
+    # the case. Computed as soon as replay gathers evidence, so it is present
+    # before any investigation runs. It is not a model score and it plays no
+    # part in queue membership -- the queue is XGBoost's ranking alone.
     confidence: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
     confidence_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    queue_tier: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     narrative: Mapped[str | None] = mapped_column(Text, nullable=True)
     narrative_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # The typology the investigation judged most consistent with the evidence,
@@ -278,7 +279,6 @@ class CaseReport(Base):
 
     __table_args__ = (
         _check("status", enums.CaseStatus, "status_valid"),
-        _check("queue_tier", enums.QueueTier, "queue_tier_valid"),
         _check("narrative_source", enums.NarrativeSource, "narrative_source_valid"),
         CheckConstraint(
             "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)",

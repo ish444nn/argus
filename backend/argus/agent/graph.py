@@ -250,10 +250,14 @@ class InvestigationRunner:
             return state
 
         narrative = state.generated.narrative
+        # One definition of the number: `score_confidence` reads the persisted
+        # evidence and calls the same function replay does. The investigation
+        # adds a narrative and citations; it does not get its own arithmetic,
+        # and re-running it cannot move the confidence unless the evidence
+        # itself moved.
         result = confidence_module.compute(state.deterministic.evidence)
         state.confidence = result.value
         state.confidence_version = result.version
-        state.queue_tier = result.queue_tier
 
         # Only typology evidence is replaced. Phase 3's measurements stay.
         self.session.execute(
@@ -300,7 +304,6 @@ class InvestigationRunner:
                 recommended_action = :action,
                 confidence = :confidence,
                 confidence_version = :confidence_version,
-                queue_tier = :tier,
                 status = :status,
                 investigation_meta = CAST(:meta AS jsonb),
                 error = NULL,
@@ -319,7 +322,6 @@ class InvestigationRunner:
                 "action": narrative.recommended_action,
                 "confidence": result.value,
                 "confidence_version": result.version,
-                "tier": result.queue_tier,
                 "status": CaseStatus.READY.value,
                 "meta": _meta_json(state, result),
             },
@@ -364,6 +366,10 @@ def _meta_json(state: InvestigationState, result) -> str:
             "retrieval_patterns": state.retrieved.patterns,
             "retrieved_sources": [chunk.typology_id for chunk in state.retrieved.chunks],
             "confidence_contributions": result.contributions,
+            # What was on the case but deliberately weighed nothing. Recorded
+            # because "present and not counted" and "absent" are different
+            # facts, and only one of them is a reason to distrust the score.
+            "confidence_excluded": result.excluded,
             "claim_count": len(narrative.claims) if narrative else 0,
             "generated_at": datetime.now(UTC).isoformat(),
         }

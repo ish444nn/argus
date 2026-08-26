@@ -64,7 +64,6 @@ def investigate(session: Session, case_id: int) -> dict[str, Any]:
         "status": CaseStatus.READY.value,
         "confidence": state.confidence,
         "confidence_version": state.confidence_version,
-        "queue_tier": state.queue_tier,
         "typology_assessment": narrative.typology_assessment if narrative else None,
         "recommended_action": narrative.recommended_action if narrative else None,
         "provider": state.generated.provider,

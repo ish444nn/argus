@@ -85,7 +85,7 @@ def cmd_investigate_top(args: argparse.Namespace) -> None:
                 result = investigation.investigate(session, case_id)
                 print(
                     f"  case {case_id}: {result['typology_assessment']} "
-                    f"conf={result['confidence']} tier={result['queue_tier']} "
+                    f"conf={result['confidence']} "
                     f"sources={len(result['retrieved_sources'])} "
                     f"fallback={result['used_fallback']}"
                 )
@@ -114,7 +114,6 @@ def cmd_investigate(args: argparse.Namespace) -> None:
     print(f"  attempts          : {state.generated.attempts}")
     print(f"  used fallback     : {state.generated.used_fallback}")
     print(f"  confidence        : {state.confidence} ({state.confidence_version})")
-    print(f"  queue tier        : {state.queue_tier}")
     if narrative:
         print(f"  typology          : {narrative.typology_assessment}")
         print(f"  recommended action: {narrative.recommended_action}")

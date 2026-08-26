@@ -33,7 +33,6 @@ class QueueEntry:
     queue_rank: int | None
     graph_score: float | None
     status: str
-    queue_tier: str | None
     confidence: float | None
     evidence_count: int
     latest_decision: str | None
@@ -50,7 +49,6 @@ def list_queue(
     *,
     timestep: int | None = None,
     status: str | None = None,
-    queue_tier: str | None = None,
     decision: str | None = None,
     undecided_only: bool = False,
     sort_by: SortField = "risk_score",
@@ -75,9 +73,6 @@ def list_queue(
     if status is not None:
         filters.append("c.status = :status")
         params["status"] = status
-    if queue_tier is not None:
-        filters.append("c.queue_tier = :queue_tier")
-        params["queue_tier"] = queue_tier
     if decision is not None:
         filters.append("latest.decision = :decision")
         params["decision"] = decision
@@ -105,7 +100,7 @@ def list_queue(
     rows = session.execute(
         text(f"""
         SELECT c.id AS case_id, c.tx_id, t.timestep, c.risk_score, c.queue_rank,
-               c.graph_score, c.status, c.queue_tier, c.confidence, c.created_at,
+               c.graph_score, c.status, c.confidence, c.created_at,
                latest.decision AS latest_decision,
                (SELECT count(*) FROM evidence_items e
                  WHERE e.case_report_id = c.id) AS evidence_count
@@ -125,7 +120,6 @@ def list_queue(
             queue_rank=int(row.queue_rank) if row.queue_rank is not None else None,
             graph_score=float(row.graph_score) if row.graph_score is not None else None,
             status=row.status,
-            queue_tier=row.queue_tier,
             confidence=float(row.confidence) if row.confidence is not None else None,
             evidence_count=int(row.evidence_count),
             latest_decision=row.latest_decision,
@@ -146,7 +140,7 @@ def get_case(session: Session, case_id: int) -> dict[str, Any] | None:
     row = session.execute(
         text("""
         SELECT c.id AS case_id, c.tx_id, c.risk_score, c.model_version, c.queue_rank,
-               c.graph_score, c.status, c.queue_tier, c.confidence, c.confidence_version,
+               c.graph_score, c.status, c.confidence, c.confidence_version,
                c.narrative, c.narrative_source, c.typology_assessment,
                c.recommended_action, c.investigation_meta,
                c.error, c.created_at, c.updated_at,
@@ -176,7 +170,6 @@ def get_case(session: Session, case_id: int) -> dict[str, Any] | None:
         "queue_rank": int(row.queue_rank) if row.queue_rank is not None else None,
         "graph_score": float(row.graph_score) if row.graph_score is not None else None,
         "status": row.status,
-        "queue_tier": row.queue_tier,
         "confidence": float(row.confidence) if row.confidence is not None else None,
         "confidence_version": row.confidence_version,
         "narrative": row.narrative,

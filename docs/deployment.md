@@ -8,7 +8,7 @@ the exact sequence — every command has been run against a clean database.
 | Component | Where | Why |
 |---|---|---|
 | Frontend | Render Static Site | Free |
-| API | Render Web Service (Docker, `api` target) | Free |
+| API | Render Web Service (Docker, default stage = `api`) | Free |
 | Database | Supabase Postgres + pgvector | Free, 500 MB |
 | **Celery worker** | **Local only** | Render background workers are not free |
 | **Redis** | **Local only** | Render Key Value is not free |
@@ -25,6 +25,28 @@ To host the whole thing, uncomment the `worker` and `redis` blocks in
 changes — the worker runs the same image and reads the same variables.
 
 ---
+
+### Why the Dockerfile ends with the API stage
+
+Render's Blueprint schema has **no `dockerTarget` field** — a `render.yaml`
+containing one is rejected with `field dockerTarget not found in type
+file.Service`. Render builds the Dockerfile's *final* stage.
+
+The Dockerfile therefore orders its stages so `api` is last. The `worker`
+stage, which carries torch, PyTorch Geometric, xgboost and the agent extras,
+sits above it and is reached only by an explicit `--target worker` — which is
+what Compose does locally. A bare `docker build .` produces the light image,
+so Render gets the right one by default rather than by configuration.
+
+Verify it after any change to the Dockerfile:
+
+```bash
+docker build -t argus-api-check .
+docker run --rm --entrypoint python argus-api-check   -c "import importlib.util as u; print([m for m in ('torch','xgboost','numpy','langgraph') if u.find_spec(m)])"
+# → []   (anything else means a stage was appended after `api`)
+```
+
+Do not add a stage after `api`.
 
 ## Before you start
 

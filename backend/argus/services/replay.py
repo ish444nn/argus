@@ -241,7 +241,53 @@ def gather_evidence(session: Session, case: CaseReport, timestep: int) -> int:
 
     # Scoped to the kinds this function produces. Typology citations belong
     # to the investigation and must survive a re-replay.
-    return persist(session, case.id, drafts, kinds=DETERMINISTIC_KINDS)
+    written = persist(session, case.id, drafts, kinds=DETERMINISTIC_KINDS)
+
+    # Evidence confidence is a pure function of the evidence just gathered, so
+    # it is known now. Computing it here means the case page can show it
+    # immediately -- an analyst should not have to run a language model to
+    # find out how much evidence the system already holds.
+    session.flush()
+    score_confidence(session, case.id)
+    return written
+
+
+def score_confidence(session: Session, case_id: int) -> float:
+    """Recompute and store a case's evidence confidence.
+
+    Reads the persisted deterministic evidence and calls the one confidence
+    implementation. The investigation calls this too, so there is a single
+    definition of the number rather than one per caller.
+    """
+    from argus.agent import confidence as confidence_module
+    from argus.agent.state import EvidenceRecord
+
+    rows = session.execute(
+        text("""
+        SELECT id, kind, summary, strength, weight
+        FROM evidence_items WHERE case_report_id = :case_id
+        """),
+        {"case_id": case_id},
+    ).all()
+    records = [
+        EvidenceRecord(
+            id=int(row.id),
+            kind=row.kind,
+            summary=row.summary,
+            strength=float(row.strength),
+            weight=float(row.weight),
+        )
+        for row in rows
+    ]
+    result = confidence_module.compute(records)
+    session.execute(
+        text(
+            "UPDATE case_reports SET confidence = :value, "
+            "confidence_version = :version WHERE id = :case_id"
+        ),
+        {"value": result.value, "version": result.version, "case_id": case_id},
+    )
+    return result.value
 
 
 def replay_batch(

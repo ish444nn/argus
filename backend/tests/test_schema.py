@@ -54,7 +54,6 @@ def test_check_constraints_cover_every_enum_column():
     for expected in (
         "ck_transactions_label_valid",
         "ck_case_reports_status_valid",
-        "ck_case_reports_queue_tier_valid",
         "ck_evidence_items_kind_valid",
         "ck_reviews_decision_valid",
         "ck_batch_runs_status_valid",

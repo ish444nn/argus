@@ -93,7 +93,7 @@ API key. Live query embedding is used when a key is present.
   tools. Idempotent. GraphSAGE scores are read from `transaction_embeddings`,
   written by `argus.ml.cli embed`.
 - `investigate_case(case_id)` — Phase 4. LangGraph investigation, typology
-  retrieval, narrative, deterministic confidence, primary/secondary tier.
+  retrieval, narrative. Confidence is computed earlier, during replay.
 
 Progress lives in the `batch_runs` table, NOT in Celery's result backend.
 **Heavy imports go INSIDE task bodies** — the API imports `argus.jobs.tasks` to
@@ -320,6 +320,49 @@ MEASURED:
 - Deployment: Render (static + docker api) + Supabase. Worker/Redis stay local.
   `argus.ml.cli export-demo` writes 55MB of seed SQL (features NULL); verified
   loading into a clean migrated database -> 90MB, 0 dangling citations.
+
+## Polish pass findings (post-Phase 6)
+
+- **Three signals, one decider.** Risk score (XGBoost) decides the queue.
+  Second opinion (GraphSAGE) and evidence confidence decide nothing. The case
+  page states this on the face of each tile; only the risk tile is accented.
+- **Primary/secondary queue tiers are GONE**, column and all (migration
+  `0005_drop_tier`). Letting evidence confidence re-sort the queue conflated
+  "how likely is this illicit" with "how much did we find out about it".
+  `docs/prd.md` keeps the original requirement text with a recorded deviation.
+- **`graph_model_corroboration` now weighs 0.0.** A model's own score is not
+  evidence -- otherwise a case looks well-supported because a second model
+  agreed. `structural_similarity` still weighs 0.25 even though it comes from
+  the same embeddings, because it is a measurement against named labelled
+  transactions. A test sweeps the raw graph score across its range and asserts
+  confidence does not move. Version string is now `w1-noisyor` (no threshold).
+- **Confidence is written during replay**, by `services.replay.score_confidence`,
+  reusing `agent.confidence.compute` on the persisted rows. A case carries a
+  confidence before any investigation. Re-investigating does not move it.
+- **The "Run investigation" button looked broken** because the case query only
+  polls while `status == "investigating"`, and status did not change until a
+  manual refresh. Fixed with an optimistic `setQueryData` in `onSuccess` plus
+  `run.isPending`, which both shows the running state and starts the poll.
+- **Alert budget is explorable but not changed.** 1% remains canonical and is
+  what every replay and every reported metric uses. `GET /api/overview?budget=`
+  re-cuts the *stored* scores with a window function; it writes nothing. At 1%,
+  670 transactions scoring >=0.99 go unselected; at 3%, 158. Showing that number
+  is the answer to the obvious interview question.
+- **CI installed only `--extra agent`**, so `tests/ml` and parts of
+  `tests/services` failed at *collection* on numpy -- a skip marker never gets
+  to run if the import fails first. Now `--extra agent --extra gnn`. That is
+  test tooling only; the API Docker stage still installs core deps alone.
+- **Render's Blueprint schema has no `dockerTarget`.** It builds the final
+  stage, and the Dockerfile's last stage used to be `worker` -- so the fix also
+  removed a live risk of shipping torch to the web service. `api` is now last.
+  **Do not append a stage after it.** Verified: a bare `docker build .` has
+  fastapi/sqlalchemy/celery and none of torch/xgboost/numpy/PyG/langgraph.
+- **The typology chart was one purple bar.** Every typology drew from
+  `--model`. Per-typology colours now live in `frontend/src/evidence.ts`
+  alongside the labels, with `no_clear_typology` deliberately neutral.
+- **Headless Edge is enough to actually look at the UI**:
+  `msedge --headless=new --screenshot=out.png --window-size=W,H
+  --virtual-time-budget=12000 <url>`. No Playwright needed.
 
 ## Phase end protocol
 

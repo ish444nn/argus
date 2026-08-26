@@ -31,8 +31,8 @@ from doing.
 | Which transactions are risky | XGBoost (Phase 2/3) |
 | What evidence exists | The deterministic tools (Phase 3) |
 | Which typology passages are relevant | Pattern filter + vector rank |
-| Confidence | `argus.agent.confidence`, from the evidence |
-| Queue tier | The confidence threshold |
+| Confidence | `argus.agent.confidence`, from the deterministic evidence |
+| Which cases enter the queue | XGBoost's ranking and the alert budget — nothing else |
 | **The wording of the assessment** | **The model** |
 
 The last row is the whole of its job.
@@ -167,8 +167,8 @@ confirmed_neighbour       0.40
 structural_similarity     0.25
 flagged_neighbour         0.20
 heuristic                 0.15
-graph_model_corroboration 0.15
-typology_reference        0.00
+graph_model_corroboration 0.00   a model's own score, not evidence
+typology_reference        0.00   explains a signal; is not one
 ```
 
 The first real run exposed why simple summation was wrong: five near-identical
@@ -183,12 +183,34 @@ therefore rises by finding *different* kinds of support. Corroboration across a
 heuristic, a neighbour and a similarity match beats five similarity matches —
 which is the behaviour worth having.
 
-Typology references weigh **zero** on purpose. A retrieved passage explains why
-a signal matters; it is not itself a signal, and a system that grew more
-confident the more it read would be measuring its own reading.
+Two kinds weigh **zero** on purpose, for two different reasons.
 
-Cases at or above **0.35** reach the primary queue; the rest are held in the
-secondary queue — retained, not discarded.
+A **typology reference** explains why a signal matters; it is not itself a
+signal, and a system that grew more confident the more it read would be
+measuring its own reading.
+
+**`graph_model_corroboration`** is GraphSAGE's own probability for the
+transaction. Folding one model's score into "how much evidence is there" makes
+the two indistinguishable, and a case could then look well-supported on nothing
+but a second model agreeing with the first. It is still recorded, still shown as
+the *second opinion*, and still steers typology retrieval — it just cannot raise
+confidence.
+
+The distinction that has to survive: **`structural_similarity` also comes from
+GraphSAGE and still counts.** It is a measurement made *using* the embeddings —
+this transaction sits near these named, historically-confirmed illicit ones —
+not the model's opinion about this transaction. A test pins the difference by
+sweeping the raw graph score across its whole range and asserting confidence
+does not move.
+
+Confidence decides nothing. It describes the evidence and nothing else; queue
+membership comes from XGBoost's ranking and the alert budget alone.
+
+Confidence is computed as soon as the deterministic evidence is persisted, at
+the end of `replay_batch` — before any investigation runs. Pressing *Run
+investigation* adds retrieval and a narrative; it does not compute the score,
+and re-running it leaves the score unchanged unless the evidence itself
+changed.
 
 ## Persistence
 

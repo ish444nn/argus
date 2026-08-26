@@ -115,7 +115,8 @@ export function Queue() {
                   <span className="num">{total.toLocaleString()}</span> case
                   {total === 1 ? "" : "s"}
                   {timestep && <> in batch {timestep}</>}
-                  {undecided && <> awaiting a decision</>}
+                  {undecided && <> awaiting a decision</>} · selected by risk score,
+                  ranked within each batch
                 </>
               )}
             </p>
@@ -203,7 +204,7 @@ export function Queue() {
             </caption>
             <thead>
               <tr>
-                <th scope="col" style={{ width: 56 }}>
+                <th scope="col" style={{ width: 96 }}>
                   <button
                     className="sortable"
                     onClick={() => toggleSort("queue_rank")}
@@ -214,12 +215,20 @@ export function Queue() {
                           : "ascending"
                         : "none"
                     }
+                    title="Position within its own batch, by risk score. Rank 1 is the highest-risk transaction in that batch."
                   >
-                    Rank {sortBy === "queue_rank" && (descending ? "↓" : "↑")}
+                    Batch rank {sortBy === "queue_rank" && (descending ? "↓" : "↑")}
                   </button>
                 </th>
+                <th scope="col" style={{ width: 70 }}>
+                  Batch
+                </th>
                 <th scope="col">Transaction</th>
-                <th scope="col" style={{ width: 150 }}>
+                <th
+                  scope="col"
+                  style={{ width: 160 }}
+                  title="XGBoost. The only signal that decides queue membership: each batch is ranked by it and cut at the alert budget."
+                >
                   <button
                     className="sortable"
                     onClick={() => toggleSort("risk_score")}
@@ -231,10 +240,10 @@ export function Queue() {
                         : "none"
                     }
                   >
-                    Risk {sortBy === "risk_score" && (descending ? "↓" : "↑")}
+                    Risk score {sortBy === "risk_score" && (descending ? "↓" : "↑")}
                   </button>
                 </th>
-                <th scope="col" style={{ width: 110 }}>
+                <th scope="col" style={{ width: 132 }} title="GraphSAGE's own score. Shown for comparison; it does not decide queue membership.">
                   <button
                     className="sortable"
                     onClick={() => toggleSort("graph_score")}
@@ -246,16 +255,21 @@ export function Queue() {
                         : "none"
                     }
                   >
-                    Graph {sortBy === "graph_score" && (descending ? "↓" : "↑")}
+                    Second opinion {sortBy === "graph_score" && (descending ? "↓" : "↑")}
                   </button>
                 </th>
-                <th scope="col" style={{ width: 70 }}>
-                  Batch
-                </th>
-                <th scope="col" style={{ width: 90 }}>
+                <th
+                  scope="col"
+                  style={{ width: 90 }}
+                  title="How many deterministic evidence items were gathered for this case."
+                >
                   Evidence
                 </th>
-                <th scope="col" style={{ width: 100 }}>
+                <th
+                  scope="col"
+                  style={{ width: 110 }}
+                  title="Evidence confidence: how strongly that evidence supports the case. Computed from the evidence, not from a model, and it decides nothing."
+                >
                   Confidence
                 </th>
                 <th scope="col" style={{ width: 150 }}>
@@ -277,6 +291,7 @@ export function Queue() {
                   }}
                 >
                   <td className="num text-[var(--text-3)]">{entry.queue_rank ?? "—"}</td>
+                  <td className="num text-[var(--text-3)]">{entry.timestep}</td>
                   <td className="num">{entry.tx_id}</td>
                   <td>
                     <span className="flex items-center gap-2">
@@ -287,7 +302,6 @@ export function Queue() {
                   <td className="num text-[var(--text-2)]">
                     {entry.graph_score !== null ? entry.graph_score.toFixed(3) : "—"}
                   </td>
-                  <td className="num text-[var(--text-3)]">{entry.timestep}</td>
                   <td className="num text-[var(--text-2)]">{entry.evidence_count}</td>
                   <td className="num text-[var(--text-2)]">
                     {entry.confidence !== null ? entry.confidence.toFixed(3) : "—"}

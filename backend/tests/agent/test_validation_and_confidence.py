@@ -10,7 +10,7 @@ from argus.agent import confidence, retrieval, validation
 from argus.agent.evidence import EVIDENCE_WEIGHTS
 from argus.agent.schemas import Claim, Narrative
 from argus.agent.state import EvidenceRecord
-from argus.db.enums import EvidenceKind, QueueTier
+from argus.db.enums import EvidenceKind
 
 
 def make_narrative(**overrides) -> Narrative:
@@ -132,9 +132,10 @@ def test_errors_become_prompt_feedback_for_the_retry():
 
 
 def test_confidence_is_zero_without_evidence():
+    """No evidence, no confidence -- and no error."""
     result = confidence.compute([])
     assert result.value == 0.0
-    assert result.queue_tier == QueueTier.SECONDARY.value
+    assert result.contributions == {}
 
 
 def test_one_kind_can_never_exceed_its_weight():
@@ -166,10 +167,48 @@ def test_diverse_evidence_beats_repetition():
         [
             record(EvidenceKind.STRUCTURAL_SIMILARITY, 0.9, 1),
             record(EvidenceKind.HEURISTIC, 0.9, 2),
-            record(EvidenceKind.GRAPH_MODEL_CORROBORATION, 0.9, 3),
+            # A contributing third kind: graph corroboration weighs nothing,
+            # so using it here would not demonstrate diversity at all.
+            record(EvidenceKind.FLAGGED_NEIGHBOUR, 0.9, 3),
         ]
     )
     assert diverse.value > repeated.value
+
+
+def test_the_graph_score_does_not_move_evidence_confidence():
+    """The load-bearing separation.
+
+    `graph_model_corroboration` records GraphSAGE's own probability. Folding a
+    model's score into "how much evidence is there" would make the two
+    indistinguishable, so it weighs nothing -- whatever its value.
+    """
+    evidence = [record(EvidenceKind.STRUCTURAL_SIMILARITY, 0.9, i) for i in range(3)]
+
+    baseline = confidence.compute(evidence).value
+    for graph_score in (0.0, 0.5, 0.99, 1.0):
+        with_graph = confidence.compute(
+            [*evidence, record(EvidenceKind.GRAPH_MODEL_CORROBORATION, graph_score, 99)]
+        )
+        assert with_graph.value == baseline, f"graph score {graph_score} moved confidence"
+        assert "graph_model_corroboration" in with_graph.excluded
+
+
+def test_a_graph_score_alone_is_not_evidence():
+    """A confident model with nothing behind it must score zero."""
+    result = confidence.compute([record(EvidenceKind.GRAPH_MODEL_CORROBORATION, 1.0, 1)])
+    assert result.value == 0.0
+
+
+def test_similarity_still_counts_even_though_it_uses_the_same_model():
+    """The distinction that is easy to lose.
+
+    Structural similarity is a measurement made *using* GraphSAGE embeddings --
+    this transaction sits near these named, historically-confirmed illicit ones
+    -- not the model's opinion about this transaction. It counts.
+    """
+    result = confidence.compute([record(EvidenceKind.STRUCTURAL_SIMILARITY, 0.9, 1)])
+    assert result.value > 0
+    assert "structural_similarity" in result.contributions
 
 
 def test_typology_references_never_raise_confidence():
@@ -190,16 +229,17 @@ def test_confidence_is_bounded():
     assert 0.0 <= confidence.compute(everything).value <= 1.0
 
 
-def test_tier_follows_the_threshold():
-    below = confidence.compute([record(EvidenceKind.GRAPH_MODEL_CORROBORATION, 0.5, 1)])
-    above = confidence.compute(
+def test_confidence_reports_what_it_excluded():
+    """Present-but-not-counted is different from absent, and the UI says so."""
+    result = confidence.compute(
         [
             record(EvidenceKind.CONFIRMED_NEIGHBOUR, 1.0, 1),
-            record(EvidenceKind.STRUCTURAL_SIMILARITY, 1.0, 2),
+            record(EvidenceKind.GRAPH_MODEL_CORROBORATION, 0.9, 2),
+            record(EvidenceKind.TYPOLOGY_REFERENCE, 0.8, 3),
         ]
     )
-    assert below.queue_tier == QueueTier.SECONDARY.value
-    assert above.queue_tier == QueueTier.PRIMARY.value
+    assert set(result.contributions) == {"confirmed_neighbour"}
+    assert set(result.excluded) == {"graph_model_corroboration", "typology_reference"}
 
 
 def test_confidence_is_deterministic():
@@ -213,7 +253,10 @@ def test_confidence_is_deterministic():
 def test_version_string_changes_with_the_scheme():
     """A stored confidence must be interpretable against how it was made."""
     version = confidence.compute([]).version
-    assert "noisyor" in version and "t0.35" in version
+    # No threshold in the version any more: the tier it used to gate is gone,
+    # and confidence no longer decides anything.
+    assert "noisyor" in version
+    assert "t0." not in version
 
 
 # --------------------------------------------------------------------------

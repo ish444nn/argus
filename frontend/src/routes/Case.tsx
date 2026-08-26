@@ -5,7 +5,8 @@ import { EgoGraph } from "../components/EgoGraph";
 import { EvidenceList } from "../components/Evidence";
 import { Assessment, TypologySources } from "../components/Investigation";
 import { Review } from "../components/Review";
-import { Note, Panel, ProvLabel, RiskLadder, Skeleton } from "../components/ui";
+import { Signals } from "../components/Signals";
+import { Note, Panel, ProvLabel, Skeleton } from "../components/ui";
 
 /**
  * The case dossier.
@@ -85,44 +86,20 @@ export function Case() {
       </nav>
 
       {/* --- Identity ---------------------------------------------------- */}
-      <header className="border-b border-[var(--line)] pb-5">
-        <div className="flex flex-wrap items-start justify-between gap-6">
-          <div>
-            <p className="eyebrow">Case {data.case_id}</p>
-            <h1 className="num mt-1 text-[1.75rem] leading-none">{data.tx_id}</h1>
-            <p className="mt-2 text-[var(--text-2)]">
-              Batch {data.timestep} · rank{" "}
-              <span className="num">{data.queue_rank ?? "—"}</span> · scored by{" "}
-              <span className="num">{data.model_version}</span>
-            </p>
-          </div>
-
-          <div className="flex items-end gap-8">
-            <div>
-              <p className="eyebrow">Risk score</p>
-              <div className="mt-1 flex items-center gap-2.5">
-                <RiskLadder score={data.risk_score} />
-                <span className="num text-[1.75rem] leading-none">
-                  {data.risk_score.toFixed(4)}
-                </span>
-              </div>
-              <p className="mt-1 text-[11px] text-[var(--text-3)]">
-                top {data.alert_budget ? `${(data.alert_budget * 100).toFixed(0)}%` : "—"} of
-                its batch
-              </p>
-            </div>
-            <div>
-              <p className="eyebrow">Graph score</p>
-              <p className="num mt-1 text-[1.75rem] leading-none text-[var(--model)]">
-                {data.graph_score !== null ? data.graph_score.toFixed(4) : "—"}
-              </p>
-              <p className="mt-1 text-[11px] text-[var(--text-3)]">
-                second opinion only
-              </p>
-            </div>
-          </div>
-        </div>
+      <header className="border-b border-[var(--line)] pb-4">
+        <p className="eyebrow">Case {data.case_id}</p>
+        <h1 className="num mt-1 text-[1.75rem] leading-none">{data.tx_id}</h1>
+        <p className="mt-2 text-[var(--text-2)]">
+          Batch <span className="num">{data.timestep}</span> · batch rank{" "}
+          <span className="num">{data.queue_rank ?? "—"}</span> · scored by{" "}
+          <span className="num">{data.model_version}</span>
+        </p>
       </header>
+
+      {/* --- The three signals -------------------------------------------- */}
+      <div className="mt-4">
+        <Signals detail={data} />
+      </div>
 
       {/* --- Two columns: evidence, then interpretation ------------------- */}
       <div className="mt-5 grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">

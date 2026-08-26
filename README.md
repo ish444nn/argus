@@ -18,6 +18,24 @@ Two ideas sit at the centre, and both are tested rather than assumed:
    language model — and every typology claim is retrieved from a reference
    corpus and cited, never invented.
 
+Argus therefore produces **three separate numbers**, and keeping them separate
+is a design position rather than a presentation choice:
+
+| | Source | What it decides |
+|---|---|---|
+| **Risk score** | XGBoost | Ranks each batch and selects the alerts. The only signal that decides anything. |
+| **Second opinion** | GraphSAGE | Nothing. An independent view, shown for comparison, and the source of the embeddings behind historical similarity. |
+| **Evidence confidence** | Deterministic evidence | Nothing. How strongly what Argus found supports the case. Not a model score. |
+
+The second opinion does not feed the evidence confidence: a case must never look
+well-supported because a second model agreed with the first. Historical
+similarity *does* count, even though it is computed from the same GraphSAGE
+embeddings, because it is a measurement against named labelled transactions
+rather than the model's opinion of this one.
+
+Confidence is written when the deterministic evidence is gathered, so a case
+carries one before any investigation is run.
+
 ---
 
 ## Architecture
@@ -189,7 +207,18 @@ before that split was read. See [docs/modeling.md](docs/modeling.md).
 ## Running a batch replay
 
 A batch is one Elliptic time step. Replay scores every transaction, takes the
-top 1% by rank, and gathers deterministic evidence for each case.
+top 1% by rank, and gathers deterministic evidence for each case. The Overview
+page lists the replayable time steps with a **Replay** button for each; the
+`curl` below is the same call.
+
+The 1% is an **alert budget** — a capacity decision, not a model one. It is
+applied as an exact top-k by rank within each batch, never as a stored score
+cutoff: Elliptic's distribution shifts hard in the later time steps, and a
+frozen cutoff dropped test recall from 0.374 to 0.063. The Overview page lets
+you re-cut the existing scores at 0.5%–5% to see what a budget costs — far more
+transactions score above 0.99 than 1% can hold — but 1% remains the default and
+is the budget every reported metric is measured at. Changing it retrains
+nothing and moves no score.
 
 ```bash
 curl -X POST http://localhost:8000/api/batches/35/replay   # 202, runs async

@@ -64,11 +64,20 @@ jobs:
 
       - name: Install dependencies
         working-directory: backend
-        # `--extra agent` brings in LangGraph and the Gemini SDK, which the
-        # workflow tests import. The `gnn` extra (torch, PyG, xgboost) is
-        # deliberately excluded: it is ~4 GB and only the ML pipeline needs it,
-        # so the tests that touch it self-skip instead.
-        run: uv sync --locked --extra agent
+        # Both runtime extras.
+        #
+        # `agent` brings LangGraph and the Gemini SDK. `gnn` brings numpy,
+        # torch, PyTorch Geometric and xgboost -- and it is required, not
+        # optional: tests/ml and parts of tests/services import `argus.ml`,
+        # which imports numpy at module scope. Without it pytest fails during
+        # *collection*, so a `skipif` marker never gets the chance to run and
+        # the leakage and alert-budget tests -- the most valuable in the
+        # project -- silently do not execute.
+        #
+        # The cost is the CPU-only torch wheel, which uv caches between runs.
+        # Nothing here reaches the API image: that is built from the `api`
+        # Docker stage, which installs the core dependencies only.
+        run: uv sync --locked --extra agent --extra gnn
 
       - name: Enable pgvector
         run: |

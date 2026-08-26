@@ -7,6 +7,7 @@ when a prerequisite is missing.
 
 from __future__ import annotations
 
+import json
 import math
 
 import pytest
@@ -571,3 +572,149 @@ def test_replay_still_replaces_its_own_evidence(db_session, replayed):
     before = deterministic()
     replay_service.replay_batch(db_session, REPLAY_TIMESTEP)
     assert deterministic() == before
+
+
+# --------------------------------------------------------------------------
+# Evidence confidence, before any investigation
+# --------------------------------------------------------------------------
+
+
+def test_confidence_exists_before_any_investigation(db_session, replayed):
+    """Replay gathers the evidence, so the confidence is already known.
+
+    An analyst should not have to run a language model to find out how much
+    evidence Argus already holds. Every queued case therefore carries a
+    confidence as soon as it is created.
+    """
+    missing = db_session.execute(
+        text("""
+        SELECT count(*) FROM case_reports c
+        JOIN transactions t ON t.tx_id = c.tx_id
+        WHERE t.timestep = :ts AND c.confidence IS NULL
+        """),
+        {"ts": REPLAY_TIMESTEP},
+    ).scalar_one()
+    assert missing == 0
+
+    uninvestigated = db_session.execute(
+        text("""
+        SELECT confidence FROM case_reports c
+        JOIN transactions t ON t.tx_id = c.tx_id
+        WHERE t.timestep = :ts AND c.narrative IS NULL
+        LIMIT 1
+        """),
+        {"ts": REPLAY_TIMESTEP},
+    ).scalar_one_or_none()
+    if uninvestigated is not None:
+        assert 0.0 <= float(uninvestigated) <= 1.0
+
+
+def test_confidence_matches_the_persisted_evidence(db_session, replayed):
+    """One definition of the number, computed from the rows on the case."""
+    from argus.agent import confidence as confidence_module
+    from argus.agent.state import EvidenceRecord
+
+    row = db_session.execute(
+        text("""
+        SELECT c.id, c.confidence FROM case_reports c
+        JOIN transactions t ON t.tx_id = c.tx_id
+        WHERE t.timestep = :ts ORDER BY c.queue_rank LIMIT 1
+        """),
+        {"ts": REPLAY_TIMESTEP},
+    ).one()
+
+    items = db_session.execute(
+        text(
+            "SELECT id, kind, summary, strength, weight FROM evidence_items "
+            "WHERE case_report_id = :c"
+        ),
+        {"c": row.id},
+    ).all()
+    expected = confidence_module.compute(
+        [
+            EvidenceRecord(
+                id=int(i.id),
+                kind=i.kind,
+                summary=i.summary,
+                strength=float(i.strength),
+                weight=float(i.weight),
+            )
+            for i in items
+        ]
+    )
+    assert float(row.confidence) == pytest.approx(expected.value, abs=1e-4)
+
+
+def test_a_case_with_no_evidence_scores_zero(db_session, replayed):
+    """The empty state is zero, not null and not an error."""
+    from argus.services.replay import score_confidence
+
+    case_id = db_session.execute(
+        text("""
+        SELECT c.id FROM case_reports c
+        JOIN transactions t ON t.tx_id = c.tx_id
+        WHERE t.timestep = :ts ORDER BY c.queue_rank DESC LIMIT 1
+        """),
+        {"ts": REPLAY_TIMESTEP},
+    ).scalar_one()
+
+    saved = db_session.execute(
+        text(
+            "SELECT kind, summary, strength, weight, neighbour_tx_id, details "
+            "FROM evidence_items WHERE case_report_id = :c"
+        ),
+        {"c": case_id},
+    ).all()
+
+    db_session.execute(text("DELETE FROM evidence_items WHERE case_report_id = :c"), {"c": case_id})
+    assert score_confidence(db_session, case_id) == 0.0
+    db_session.commit()
+
+    # Put it back: this case belongs to the shared demo state.
+    for item in saved:
+        db_session.execute(
+            text("""
+            INSERT INTO evidence_items
+                (case_report_id, kind, summary, strength, weight, neighbour_tx_id, details)
+            VALUES (:c, :kind, :summary, :strength, :weight, :nb, CAST(:details AS jsonb))
+            """),
+            {
+                "c": case_id,
+                "kind": item.kind,
+                "summary": item.summary,
+                "strength": item.strength,
+                "weight": item.weight,
+                "nb": item.neighbour_tx_id,
+                "details": json.dumps(item.details) if item.details else None,
+            },
+        )
+    score_confidence(db_session, case_id)
+    db_session.commit()
+
+
+def test_investigating_does_not_move_the_confidence(db_session, replayed):
+    """The investigation adds a narrative and citations, not arithmetic.
+
+    Confidence is a function of the deterministic evidence, and running an
+    investigation does not change that evidence -- so the number must not
+    move.
+    """
+    from argus.agent.graph import investigate
+    from argus.agent.llm import StubProvider
+
+    row = db_session.execute(
+        text("""
+        SELECT c.id, c.confidence FROM case_reports c
+        JOIN transactions t ON t.tx_id = c.tx_id
+        WHERE t.timestep = :ts ORDER BY c.queue_rank LIMIT 1
+        """),
+        {"ts": REPLAY_TIMESTEP},
+    ).one()
+    before = float(row.confidence)
+
+    investigate(db_session, int(row.id), provider=StubProvider())
+
+    after = db_session.execute(
+        text("SELECT confidence FROM case_reports WHERE id = :c"), {"c": row.id}
+    ).scalar_one()
+    assert float(after) == pytest.approx(before, abs=1e-4)

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet } from "react-router-dom";
 import { getHealth, getOverview } from "../api/client";
+import { DEFAULT_BUDGET } from "../budget";
 
 /**
  * The shell.
@@ -16,38 +17,42 @@ import { getHealth, getOverview } from "../api/client";
  */
 
 function Mark() {
-  // Concentric arcs around a fixed point: many watchers, one subject.
+  /**
+   * Eight watchers, one subject.
+   *
+   * A square frame — a case, a file, a screen — holding a 3×3 lattice. The
+   * centre cell is the transaction under review and carries the only colour on
+   * the mark; the eight around it are the watchers, deliberately muted. It is
+   * the Argus story told in the one geometric form that still resolves at 22px,
+   * and it doubles as a node-and-neighbourhood glyph, which is what the product
+   * actually does.
+   */
+  const ring = [
+    [6, 6],
+    [12, 6],
+    [18, 6],
+    [6, 12],
+    [18, 12],
+    [6, 18],
+    [12, 18],
+    [18, 18],
+  ];
+
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden>
-      <circle cx="12" cy="12" r="2.5" fill="var(--measured)" />
-      <path
-        d="M12 4.5a7.5 7.5 0 0 1 7.5 7.5"
-        fill="none"
-        stroke="var(--text-2)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <path
-        d="M12 19.5A7.5 7.5 0 0 1 4.5 12"
-        fill="none"
-        stroke="var(--text-2)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <path
-        d="M12 1.5A10.5 10.5 0 0 1 22.5 12"
+      <rect
+        x="1.5"
+        y="1.5"
+        width="21"
+        height="21"
         fill="none"
         stroke="var(--line-2)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
+        strokeWidth="1.25"
       />
-      <path
-        d="M12 22.5A10.5 10.5 0 0 1 1.5 12"
-        fill="none"
-        stroke="var(--line-2)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
+      {ring.map(([cx, cy]) => (
+        <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="1.35" fill="var(--text-3)" />
+      ))}
+      <circle cx="12" cy="12" r="2.6" fill="var(--measured)" />
     </svg>
   );
 }
@@ -64,8 +69,10 @@ function SystemState() {
     refetchInterval: 30_000,
   });
   const overview = useQuery({
-    queryKey: ["overview"],
-    queryFn: getOverview,
+    // Same key the Overview route uses at its default budget, so the shell
+    // shares that cache entry instead of issuing a second request.
+    queryKey: ["overview", DEFAULT_BUDGET],
+    queryFn: () => getOverview(DEFAULT_BUDGET),
     refetchInterval: 30_000,
   });
 

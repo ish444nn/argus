@@ -33,11 +33,22 @@ from argus.db.models import EvidenceItem
 # means a new version, so a stored confidence always means the same thing.
 EVIDENCE_WEIGHTS: dict[str, float] = {
     EvidenceKind.CONFIRMED_NEIGHBOUR: 0.40,
-    EvidenceKind.FLAGGED_NEIGHBOUR: 0.20,
     EvidenceKind.STRUCTURAL_SIMILARITY: 0.25,
+    EvidenceKind.FLAGGED_NEIGHBOUR: 0.20,
     EvidenceKind.HEURISTIC: 0.15,
-    EvidenceKind.GRAPH_MODEL_CORROBORATION: 0.15,
-    EvidenceKind.TYPOLOGY_REFERENCE: 0.0,  # explains a signal, is not one
+    # Zero on purpose. This item records GraphSAGE's own probability, and
+    # folding a model's score into "how much evidence is there" would collapse
+    # two things the product keeps apart: a case with no evidence at all would
+    # still score highly because a model said so. The graph score is displayed
+    # beside the confidence, never inside it.
+    #
+    # Structural similarity above is the opposite case and does count: it is a
+    # measurement made *using* the embeddings -- this transaction sits near
+    # these named, historically-confirmed illicit ones -- not the model's
+    # opinion about this transaction.
+    EvidenceKind.GRAPH_MODEL_CORROBORATION: 0.0,
+    # Explains a signal; is not one.
+    EvidenceKind.TYPOLOGY_REFERENCE: 0.0,
 }
 WEIGHTS_VERSION = "w1"
 

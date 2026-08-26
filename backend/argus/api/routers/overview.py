@@ -5,7 +5,7 @@ Thin: each handler validates and calls one service function.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from argus.api.deps import SessionDep
 from argus.api.schemas import NeighbourhoodGraph, ReviewIn, ReviewOut
@@ -18,9 +18,21 @@ router = APIRouter(prefix="/api", tags=["overview"])
 
 
 @router.get("/overview")
-def get_overview(session: SessionDep) -> dict:
+def get_overview(
+    session: SessionDep,
+    budget: float = Query(
+        default=None,
+        gt=0,
+        le=0.5,
+        description=(
+            "Alert budget to preview, as a fraction. Omit for the configured "
+            "default. Changes only which transactions the distribution counts "
+            "as alerted -- it does not re-score anything or alter the queue."
+        ),
+    ),
+) -> dict:
     """Counted from the database. No figure here is estimated or invented."""
-    return overview_service.operations(session)
+    return overview_service.operations(session, budget=budget)
 
 
 @router.get("/transactions/{tx_id}/neighbourhood", response_model=NeighbourhoodGraph)

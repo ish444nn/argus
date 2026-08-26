@@ -250,7 +250,6 @@ def test_workflow_runs_end_to_end_with_the_stub(db, seeded):
     assert state.deterministic is not None
     assert state.generated.narrative is not None
     assert state.confidence is not None
-    assert state.queue_tier in {"primary", "secondary"}
     # No key means the rule-built narrative, and that is a normal outcome.
     assert state.generated.used_fallback
 
@@ -364,7 +363,7 @@ def test_the_report_is_persisted(db, seeded):
     row = db.execute(
         text("""
         SELECT narrative, narrative_source, typology_assessment, recommended_action,
-               confidence, confidence_version, queue_tier, status, investigation_meta
+               confidence, confidence_version, status, investigation_meta
         FROM case_reports WHERE id = :c
         """),
         {"c": seeded},
@@ -376,7 +375,6 @@ def test_the_report_is_persisted(db, seeded):
     assert row.recommended_action
     assert row.confidence is not None
     assert row.confidence_version
-    assert row.queue_tier in {"primary", "secondary"}
     assert row.status == CaseStatus.READY.value
     assert row.investigation_meta["prompt_version"]
     assert "generated_at" in row.investigation_meta

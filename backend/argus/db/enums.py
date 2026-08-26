@@ -24,11 +24,6 @@ class CaseStatus(StrEnum):
     FAILED = "failed"
 
 
-class QueueTier(StrEnum):
-    PRIMARY = "primary"
-    SECONDARY = "secondary"
-
-
 class EvidenceKind(StrEnum):
     FLAGGED_NEIGHBOUR = "flagged_neighbour"
     CONFIRMED_NEIGHBOUR = "confirmed_neighbour"

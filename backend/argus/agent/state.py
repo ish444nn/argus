@@ -129,5 +129,4 @@ class InvestigationState:
     generated: GeneratedAssessment = field(default_factory=GeneratedAssessment)
     confidence: float | None = None
     confidence_version: str = ""
-    queue_tier: str | None = None
     error: str | None = None

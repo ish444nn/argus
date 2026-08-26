@@ -27,7 +27,6 @@ export type QueueEntry = {
   queue_rank: number | null;
   graph_score: number | null;
   status: string;
-  queue_tier: string | null;
   confidence: number | null;
   evidence_count: number;
   latest_decision: string | null;
@@ -94,6 +93,7 @@ export type InvestigationMeta = {
   retrieved_sources?: string[];
   validation_errors?: string[];
   confidence_contributions?: Record<string, number>;
+  confidence_excluded?: Record<string, number>;
 };
 
 export type CaseDetail = {
@@ -106,7 +106,6 @@ export type CaseDetail = {
   queue_rank: number | null;
   graph_score: number | null;
   status: string;
-  queue_tier: string | null;
   confidence: number | null;
   narrative: string | null;
   narrative_source: string | null;
@@ -140,8 +139,6 @@ export type Overview = {
     investigating: number;
     ready: number;
     failed: number;
-    primary: number;
-    secondary: number;
     model_written: number;
     rule_written: number;
     awaiting_review: number;
@@ -149,7 +146,20 @@ export type Overview = {
   decisions: Record<string, number>;
   typologies: Record<string, number>;
   evidence: Record<string, number>;
-  risk_distribution: { band: string; count: number; alerted: number }[];
+  risk_distribution: {
+    band: string;
+    count: number;
+    alerted: number;
+    would_alert: number;
+  }[];
+  budget_preview: {
+    budget: number;
+    scored: number;
+    selected: number;
+    high_scoring: number;
+    high_scoring_unselected: number;
+  };
+  default_alert_budget: number;
   corpus: {
     chunks: number;
     sources: number;
@@ -221,7 +231,6 @@ export function getHealth(): Promise<HealthResponse> {
 export type QueueParams = {
   timestep?: number;
   status?: string;
-  queueTier?: string;
   decision?: string;
   undecidedOnly?: boolean;
   limit?: number;
@@ -234,7 +243,6 @@ export function getQueue(params: QueueParams): Promise<QueuePage> {
   const search = new URLSearchParams();
   if (params.timestep !== undefined) search.set("timestep", String(params.timestep));
   if (params.status) search.set("status", params.status);
-  if (params.queueTier) search.set("queue_tier", params.queueTier);
   if (params.decision) search.set("decision", params.decision);
   if (params.undecidedOnly) search.set("undecided_only", "true");
   search.set("limit", String(params.limit ?? 50));
@@ -261,8 +269,25 @@ export function startInvestigation(
   );
 }
 
-export function getOverview(): Promise<Overview> {
-  return request<Overview>("/api/overview");
+export function getOverview(budget?: number): Promise<Overview> {
+  const search = budget ? `?budget=${budget}` : "";
+  return request<Overview>(`/api/overview${search}`);
+}
+
+export type BatchAvailability = {
+  timestep: number;
+  replayed: boolean;
+  transactions: number;
+};
+
+export type AvailableBatches = {
+  replayable_range: [number, number];
+  alert_budget: number;
+  batches: BatchAvailability[];
+};
+
+export function getAvailableBatches(): Promise<AvailableBatches> {
+  return request<AvailableBatches>("/api/batches/available");
 }
 
 export function getNeighbourhood(txId: number): Promise<NeighbourhoodGraph> {

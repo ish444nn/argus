@@ -25,9 +25,16 @@ RISK_BANDS = [
 ]
 
 
-def operations(session: Session) -> dict[str, Any]:
-    """Everything the overview shows, in one round trip per section."""
+def operations(session: Session, budget: float | None = None) -> dict[str, Any]:
+    """Everything the overview shows, in one round trip per section.
+
+    `budget` lets the screen ask "what would the queue look like at 2%?"
+    without re-scoring anything. It changes only which transactions the
+    distribution counts as alerted -- the model, its scores and the stored
+    queue are untouched.
+    """
     settings = get_settings()
+    budget = settings.alert_budget if budget is None else budget
 
     batches = session.execute(
         text("""
@@ -48,8 +55,6 @@ def operations(session: Session) -> dict[str, Any]:
                count(*) FILTER (WHERE status = 'investigating') AS investigating,
                count(*) FILTER (WHERE status = 'ready') AS ready,
                count(*) FILTER (WHERE status = 'failed') AS failed,
-               count(*) FILTER (WHERE queue_tier = 'primary') AS primary_tier,
-               count(*) FILTER (WHERE queue_tier = 'secondary') AS secondary_tier,
                count(*) FILTER (WHERE narrative_source = 'llm') AS model_written,
                count(*) FILTER (WHERE narrative_source = 'template') AS rule_written
         FROM case_reports
@@ -97,7 +102,8 @@ def operations(session: Session) -> dict[str, Any]:
     )
 
     return {
-        "alert_budget": settings.alert_budget,
+        "alert_budget": budget,
+        "default_alert_budget": settings.alert_budget,
         "llm_provider": settings.llm_provider,
         "replay_range": [settings.replay_min_timestep, settings.replay_max_timestep],
         "batches": {
@@ -121,8 +127,6 @@ def operations(session: Session) -> dict[str, Any]:
             "investigating": int(cases.investigating),
             "ready": int(cases.ready),
             "failed": int(cases.failed),
-            "primary": int(cases.primary_tier),
-            "secondary": int(cases.secondary_tier),
             "model_written": int(cases.model_written),
             "rule_written": int(cases.rule_written),
             "awaiting_review": int(awaiting),
@@ -130,37 +134,69 @@ def operations(session: Session) -> dict[str, Any]:
         "decisions": {key: int(value) for key, value in decisions.items()},
         "typologies": {key: int(value) for key, value in typologies.items()},
         "evidence": {key: int(value) for key, value in evidence.items()},
-        "risk_distribution": risk_distribution(session),
+        "risk_distribution": risk_distribution(session, budget),
+        "budget_preview": budget_preview(session, budget),
         "corpus": corpus_summary(session),
     }
 
 
-def risk_distribution(session: Session) -> list[dict[str, Any]]:
+def risk_distribution(session: Session, budget: float | None = None) -> list[dict[str, Any]]:
     """Score distribution across everything scored, with the alerted slice.
 
     Deliberately over `risk_scores` rather than `case_reports`: the queue is
-    by construction the top 1%, so a distribution of queued cases puts every
-    row in the highest band and shows nothing. Plotting the whole scored
+    by construction the top slice, so a distribution of queued cases puts
+    every row in the highest band and shows nothing. Plotting the whole scored
     population, with the alerted portion marked, is what makes the size of the
-    cut legible.
+    cut legible -- and makes the honest answer visible to the obvious
+    question, "what about the high-scoring transactions below the line?".
+
+    `alerted` is what the current stored queue contains. `would_alert` is what
+    the chosen budget *would* select, recomputed per batch by rank, so moving
+    the control shows the cut moving without touching a single stored row.
     """
+    budget = get_settings().alert_budget if budget is None else budget
+    params: dict[str, Any] = {f"a{i}": band[0] for i, band in enumerate(RISK_BANDS)}
+    params["budget"] = budget
+
     rows = session.execute(
         text("""
+        WITH ranked AS (
+            SELECT r.tx_id, r.score, t.timestep,
+                   (c.id IS NOT NULL) AS queued,
+                   -- Rank within the batch, because the budget is applied per
+                   -- batch. A global rank would answer a different question.
+                   row_number() OVER (
+                       PARTITION BY t.timestep ORDER BY r.score DESC, r.tx_id
+                   ) AS rank_in_batch,
+                   count(*) OVER (PARTITION BY t.timestep) AS batch_size
+            FROM risk_scores r
+            JOIN transactions t ON t.tx_id = r.tx_id
+            LEFT JOIN case_reports c ON c.tx_id = r.tx_id
+        ),
+        marked AS (
+            SELECT score, queued,
+                   rank_in_batch <= ceil(batch_size * :budget) AS would_alert
+            FROM ranked
+        )
         SELECT
-          count(*) FILTER (WHERE r.score >= :a0 AND r.score < :a1) AS b0,
-          count(*) FILTER (WHERE r.score >= :a1 AND r.score < :a2) AS b1,
-          count(*) FILTER (WHERE r.score >= :a2 AND r.score < :a3) AS b2,
-          count(*) FILTER (WHERE r.score >= :a3 AND r.score < :a4) AS b3,
-          count(*) FILTER (WHERE r.score >= :a4) AS b4,
-          count(*) FILTER (WHERE r.score >= :a0 AND r.score < :a1 AND c.id IS NOT NULL) AS q0,
-          count(*) FILTER (WHERE r.score >= :a1 AND r.score < :a2 AND c.id IS NOT NULL) AS q1,
-          count(*) FILTER (WHERE r.score >= :a2 AND r.score < :a3 AND c.id IS NOT NULL) AS q2,
-          count(*) FILTER (WHERE r.score >= :a3 AND r.score < :a4 AND c.id IS NOT NULL) AS q3,
-          count(*) FILTER (WHERE r.score >= :a4 AND c.id IS NOT NULL) AS q4
-        FROM risk_scores r
-        LEFT JOIN case_reports c ON c.tx_id = r.tx_id
+          count(*) FILTER (WHERE score >= :a0 AND score < :a1) AS b0,
+          count(*) FILTER (WHERE score >= :a1 AND score < :a2) AS b1,
+          count(*) FILTER (WHERE score >= :a2 AND score < :a3) AS b2,
+          count(*) FILTER (WHERE score >= :a3 AND score < :a4) AS b3,
+          count(*) FILTER (WHERE score >= :a4) AS b4,
+          count(*) FILTER (WHERE score >= :a0 AND score < :a1 AND queued) AS q0,
+          count(*) FILTER (WHERE score >= :a1 AND score < :a2 AND queued) AS q1,
+          count(*) FILTER (WHERE score >= :a2 AND score < :a3 AND queued) AS q2,
+          count(*) FILTER (WHERE score >= :a3 AND score < :a4 AND queued) AS q3,
+          count(*) FILTER (WHERE score >= :a4 AND queued) AS q4,
+          count(*) FILTER (WHERE score >= :a0 AND score < :a1 AND would_alert) AS w0,
+          count(*) FILTER (WHERE score >= :a1 AND score < :a2 AND would_alert) AS w1,
+          count(*) FILTER (WHERE score >= :a2 AND score < :a3 AND would_alert) AS w2,
+          count(*) FILTER (WHERE score >= :a3 AND score < :a4 AND would_alert) AS w3,
+          count(*) FILTER (WHERE score >= :a4 AND would_alert) AS w4
+        FROM marked
         """),
-        {f"a{i}": band[0] for i, band in enumerate(RISK_BANDS)},
+        params,
     ).one()
 
     return [
@@ -168,9 +204,49 @@ def risk_distribution(session: Session) -> list[dict[str, Any]]:
             "band": RISK_BANDS[i][2],
             "count": int(getattr(rows, f"b{i}")),
             "alerted": int(getattr(rows, f"q{i}")),
+            "would_alert": int(getattr(rows, f"w{i}")),
         }
         for i in range(len(RISK_BANDS))
     ]
+
+
+def budget_preview(session: Session, budget: float) -> dict[str, Any]:
+    """How many transactions this budget would select, and what it would miss.
+
+    The "what about the rest?" number is deliberately prominent. A reviewer
+    seeing 894 transactions scoring above 0.99 and only 275 alerts should be
+    told plainly that the remainder are scored, stored and unreviewed -- that
+    is what a capacity constraint means, and hiding it would be dishonest.
+    """
+    row = session.execute(
+        text("""
+        WITH ranked AS (
+            SELECT r.score, t.timestep,
+                   row_number() OVER (
+                       PARTITION BY t.timestep ORDER BY r.score DESC, r.tx_id
+                   ) AS rank_in_batch,
+                   count(*) OVER (PARTITION BY t.timestep) AS batch_size
+            FROM risk_scores r
+            JOIN transactions t ON t.tx_id = r.tx_id
+        )
+        SELECT count(*) AS scored,
+               count(*) FILTER (WHERE rank_in_batch <= ceil(batch_size * :budget)) AS selected,
+               count(*) FILTER (WHERE score >= 0.99) AS high_scoring,
+               count(*) FILTER (
+                   WHERE score >= 0.99 AND rank_in_batch > ceil(batch_size * :budget)
+               ) AS high_scoring_unselected
+        FROM ranked
+        """),
+        {"budget": budget},
+    ).one()
+
+    return {
+        "budget": budget,
+        "scored": int(row.scored),
+        "selected": int(row.selected),
+        "high_scoring": int(row.high_scoring),
+        "high_scoring_unselected": int(row.high_scoring_unselected),
+    }
 
 
 def corpus_summary(session: Session) -> dict[str, Any]:

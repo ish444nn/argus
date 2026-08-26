@@ -12,9 +12,15 @@ survives a worker restart and means the same thing to every caller.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import text
 
 from argus.api.deps import SessionDep, SettingsDep, dispatch
-from argus.api.schemas import BatchRunOut, ReplayDispatched
+from argus.api.schemas import (
+    AvailableBatches,
+    BatchAvailability,
+    BatchRunOut,
+    ReplayDispatched,
+)
 from argus.services import queue as queue_service
 
 router = APIRouter(prefix="/api/batches", tags=["batches"])
@@ -43,6 +49,38 @@ def start_replay(timestep: int, session: SessionDep, settings: SettingsDep) -> R
         timestep=timestep,
         alert_budget=settings.alert_budget,
         status_url=f"/api/batches/{timestep}",
+    )
+
+
+@router.get("/available", response_model=AvailableBatches)
+def list_available(session: SessionDep, settings: SettingsDep) -> AvailableBatches:
+    """Time steps that can be replayed, and which already have been.
+
+    The UI needs this to offer a batch to import: without it an analyst has to
+    guess a number, and guessing a training time step gets a 400.
+    """
+    replayed = set(session.execute(text("SELECT timestep FROM batch_runs")).scalars().all())
+    every = list(range(settings.replay_min_timestep, settings.replay_max_timestep + 1))
+    sizes = dict(
+        session.execute(
+            text(
+                "SELECT timestep, count(*) FROM transactions "
+                "WHERE timestep BETWEEN :lo AND :hi GROUP BY timestep"
+            ),
+            {"lo": settings.replay_min_timestep, "hi": settings.replay_max_timestep},
+        ).all()
+    )
+    return AvailableBatches(
+        replayable_range=[settings.replay_min_timestep, settings.replay_max_timestep],
+        alert_budget=settings.alert_budget,
+        batches=[
+            BatchAvailability(
+                timestep=ts,
+                replayed=ts in replayed,
+                transactions=int(sizes.get(ts, 0)),
+            )
+            for ts in every
+        ],
     )
 
 

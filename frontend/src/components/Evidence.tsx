@@ -1,4 +1,5 @@
 import type { EvidenceItem } from "../api/client";
+import { evidenceMeta } from "../evidence";
 import { Meter, Note, ProvLabel } from "./ui";
 
 /**
@@ -19,7 +20,7 @@ const GROUPS: { kinds: string[]; title: string; blurb: string }[] = [
     kinds: ["structural_similarity"],
     title: "Historical similarity",
     blurb:
-      "Transactions from the training period whose network position the graph model represents the same way.",
+      "Transactions from the training period whose network position the graph model represents the same way. A measurement made using the model, not the model's opinion of this transaction — which is why it counts towards confidence and the second opinion does not.",
   },
   {
     kinds: ["heuristic"],
@@ -36,11 +37,13 @@ const GROUPS: { kinds: string[]; title: string; blurb: string }[] = [
   {
     kinds: ["graph_model_corroboration"],
     title: "Second opinion",
-    blurb: "The neighbourhood-aware model's independent score. It does not decide the queue.",
+    blurb:
+      "The neighbourhood-aware model's independent score, quoted for comparison. It decides neither the queue nor the evidence confidence.",
   },
 ];
 
 function Row({ item }: { item: EvidenceItem }) {
+  const meta = evidenceMeta(item.kind);
   const heuristic =
     item.details && typeof item.details.heuristic === "string"
       ? (item.details.heuristic as string)
@@ -69,10 +72,20 @@ function Row({ item }: { item: EvidenceItem }) {
           </p>
         </div>
         <div className="shrink-0 text-right">
-          <Meter value={item.strength} width={56} />
-          <p className="num mt-1 text-[11px] text-[var(--text-3)]">
-            {item.strength.toFixed(2)} × {item.weight.toFixed(2)}
-          </p>
+          <Meter
+            value={item.strength}
+            width={56}
+            colour={meta.countsTowardConfidence ? undefined : "var(--model)"}
+          />
+          {meta.countsTowardConfidence ? (
+            <p className="num mt-1 text-[11px] text-[var(--text-3)]">
+              {item.strength.toFixed(2)} × {item.weight.toFixed(2)}
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-[var(--text-3)]">
+              <span className="num">{item.strength.toFixed(2)}</span> · not counted
+            </p>
+          )}
         </div>
       </div>
     </li>
@@ -106,9 +119,18 @@ export function EvidenceList({ items }: { items: EvidenceItem[] }) {
         detail={`${observed.length} item${observed.length === 1 ? "" : "s"} across ${kinds} kind${kinds === 1 ? "" : "s"}`}
       />
 
-      {groups.map((group) => (
+      {groups.map((group) => {
+        const meta = evidenceMeta(group.kinds[0]);
+        return (
         <section key={group.title}>
-          <h3 className="text-[var(--text)]">{group.title}</h3>
+          <h3 className="flex items-center gap-2 text-[var(--text)]">
+            {group.title}
+            {!meta.countsTowardConfidence && (
+              <span className="eyebrow !text-[var(--text-3)]">
+                excluded from confidence
+              </span>
+            )}
+          </h3>
           <p className="mb-2 mt-0.5 max-w-[74ch] text-[11px] text-[var(--text-3)]">
             {group.blurb}
           </p>
@@ -118,12 +140,16 @@ export function EvidenceList({ items }: { items: EvidenceItem[] }) {
             ))}
           </ul>
         </section>
-      ))}
+        );
+      })}
 
       <p className="border-t border-[var(--line)] pt-3 text-[11px] text-[var(--text-3)]">
-        Confidence combines these deterministically. Items of one kind combine with
-        diminishing returns and can never exceed that kind&rsquo;s weight, so
-        corroboration across kinds counts for more than repetition within one.
+        Confidence combines these deterministically, and is computed as soon as the
+        evidence is gathered — before any investigation runs. Items of one kind
+        combine with diminishing returns and can never exceed that kind&rsquo;s
+        weight, so corroboration across kinds counts for more than repetition within
+        one. A model&rsquo;s own score is not evidence, so the second opinion is
+        listed but contributes nothing.
       </p>
     </div>
   );

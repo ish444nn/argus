@@ -46,7 +46,6 @@ class QueueEntryOut(BaseModel):
     queue_rank: int | None
     graph_score: float | None
     status: str
-    queue_tier: str | None
     confidence: float | None
     evidence_count: int
     latest_decision: str | None
@@ -99,7 +98,6 @@ class CaseDetail(BaseModel):
     queue_rank: int | None
     graph_score: float | None
     status: str
-    queue_tier: str | None
     confidence: float | None
     confidence_version: str | None
     narrative: str | None
@@ -193,3 +191,15 @@ class ReviewOut(BaseModel):
     note: str | None
     analyst: str
     created_at: str
+
+
+class BatchAvailability(BaseModel):
+    timestep: int
+    replayed: bool
+    transactions: int
+
+
+class AvailableBatches(BaseModel):
+    replayable_range: list[int]
+    alert_budget: float
+    batches: list[BatchAvailability]

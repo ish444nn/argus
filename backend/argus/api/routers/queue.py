@@ -20,7 +20,7 @@ from argus.api.schemas import (
     QueueEntryOut,
     QueuePage,
 )
-from argus.db.enums import CaseStatus, Decision, QueueTier
+from argus.db.enums import CaseStatus, Decision
 from argus.services import investigation as investigation_service
 from argus.services import queue as queue_service
 
@@ -32,7 +32,6 @@ def list_queue(
     session: SessionDep,
     timestep: int | None = None,
     status: CaseStatus | None = None,
-    queue_tier: QueueTier | None = None,
     decision: Decision | None = None,
     undecided_only: bool = False,
     sort_by: Literal["risk_score", "queue_rank", "created_at", "graph_score"] = "risk_score",
@@ -44,7 +43,6 @@ def list_queue(
         session,
         timestep=timestep,
         status=status.value if status else None,
-        queue_tier=queue_tier.value if queue_tier else None,
         decision=decision.value if decision else None,
         undecided_only=undecided_only,
         sort_by=sort_by,

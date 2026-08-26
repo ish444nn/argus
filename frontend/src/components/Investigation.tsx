@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCitedSources, startInvestigation, type CaseDetail } from "../api/client";
-import { Badge, Meter, Note, Panel, ProvLabel, Skeleton } from "./ui";
+import { TYPOLOGY_LABELS } from "../evidence";
+import { Badge, Note, Panel, ProvLabel, Skeleton } from "./ui";
 
 /**
  * The investigation.
@@ -13,16 +14,6 @@ import { Badge, Meter, Note, Panel, ProvLabel, Skeleton } from "./ui";
  * it is computed from evidence rather than stated by the model — that
  * distinction is easy to lose and expensive to lose.
  */
-
-const TYPOLOGY_LABELS: Record<string, string> = {
-  structuring: "Structuring",
-  funnelling: "Funnelling",
-  layering: "Layering",
-  mixing_or_obfuscation: "Mixing or obfuscation",
-  mule_network: "Mule network",
-  network_association: "Network association",
-  no_clear_typology: "No clear typology",
-};
 
 /**
  * The corpus is written as hard-wrapped markdown, so quoting it verbatim drags
@@ -47,15 +38,27 @@ export function Assessment({ detail }: { detail: CaseDetail }) {
   const queryClient = useQueryClient();
   const meta = detail.investigation_meta ?? {};
   const written = Boolean(detail.narrative);
-  const running = detail.status === "investigating";
   const fromModel = detail.narrative_source === "llm";
 
   const run = useMutation({
     mutationFn: () => startInvestigation(detail.case_id),
     onSuccess: () => {
+      // The task is queued, not finished. Mark the case as investigating
+      // straight away so the panel switches to the running state on this
+      // render rather than after the next poll -- otherwise the button sits
+      // there looking unclicked until something else refetches, which reads
+      // as a broken button.
+      queryClient.setQueryData(["case", detail.case_id], (previous?: CaseDetail) =>
+        previous ? { ...previous, status: "investigating" } : previous,
+      );
       queryClient.invalidateQueries({ queryKey: ["case", detail.case_id] });
     },
   });
+
+  // `isPending` covers the moment between click and the 202 coming back;
+  // `status` covers everything after. Together they mean the running state
+  // shows from the first click until the report lands.
+  const running = detail.status === "investigating" || run.isPending;
 
   if (detail.status === "failed" && !written) {
     return (
@@ -89,9 +92,11 @@ export function Assessment({ detail }: { detail: CaseDetail }) {
               </p>
             </div>
           ) : (
-            <Note title="Not investigated yet">
-              The deterministic evidence is gathered. Running the investigation
-              retrieves matching typology passages and writes a cited assessment.
+            <Note title="No written assessment yet">
+              The evidence is already gathered and its confidence is shown above.
+              Running an investigation adds the parts that need a language model:
+              it retrieves matching AML typology passages and writes a cited
+              assessment. It does not change the evidence or its confidence.
               <div className="mt-3">
                 <button
                   className="btn btn-primary"
@@ -129,34 +134,13 @@ export function Assessment({ detail }: { detail: CaseDetail }) {
         }
       >
         <div className="panel-body space-y-4">
-          {/* Confidence is measured, not model-stated — labelled as such. */}
+          {/* Confidence is measured, not model-stated -- labelled as such. */}
           <div className="prov prov-measured">
-            <ProvLabel origin="measured">Computed from evidence</ProvLabel>
-            <div className="mt-2 flex flex-wrap items-end gap-x-8 gap-y-3">
-              <div>
-                <p className="eyebrow">Confidence</p>
-                <div className="mt-1 flex items-center gap-2.5">
-                  <span className="num text-[1.5rem] leading-none">
-                    {(detail.confidence ?? 0).toFixed(3)}
-                  </span>
-                  <Meter
-                    value={detail.confidence ?? 0}
-                    width={90}
-                    colour={
-                      (detail.confidence ?? 0) >= 0.35 ? "var(--ok)" : "var(--warn)"
-                    }
-                  />
-                </div>
-              </div>
-              <div>
-                <p className="eyebrow">Queue tier</p>
-                <p className="mt-1.5">
-                  <Badge tone={detail.queue_tier === "primary" ? "measured" : "neutral"}>
-                    {detail.queue_tier ?? "—"}
-                  </Badge>
-                </p>
-              </div>
-            </div>
+            <ProvLabel origin="measured">Evidence confidence</ProvLabel>
+            <p className="mt-2 text-[var(--text-2)]">
+              Unchanged by this investigation: it is a function of the deterministic
+              evidence, which the narrative describes rather than adds to.
+            </p>
             {meta.confidence_contributions && (
               <p className="num mt-2 text-[11px] text-[var(--text-3)]">
                 {Object.entries(meta.confidence_contributions)

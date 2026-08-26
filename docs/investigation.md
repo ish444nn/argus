@@ -30,6 +30,23 @@ in front of it — never labels — which is exactly what a live queue can do.
 The threshold the model was calibrated at is still exported in its manifest, for
 reference and for anything that needs a single number.
 
+### Exploring the budget
+
+**1% is canonical.** It is the default in `core/config.py`, the budget every
+replay runs at, and the budget every number in `docs/modeling.md` is
+measured at. Nothing about that changed.
+
+What the Overview page adds is a *read-only* re-cut: `GET /api/overview?budget=`
+accepts 0.5%–5% and recomputes, with a window function over the stored scores,
+how many transactions each budget would select and where the cut would land in
+each risk band. It touches no model, retrains nothing, writes nothing and moves
+no score — the queue on disk is still the 1% one the replay produced.
+
+It exists because the honest answer to "there are 979 transactions scoring above
+0.99 and you only look at 309 — what about the rest?" is a number, not an
+argument. At 1% the answer is 670 unreviewed; at 3% it is 158. That is the cost
+of a capacity decision, and showing it is more useful than defending it.
+
 ### Idempotency
 
 Re-running a batch restates it. Three unique constraints do most of the work:
@@ -67,11 +84,15 @@ survives a worker restart.
 
 `GET /api/queue` exposes transaction id, risk score, queue rank, time step,
 GraphSAGE score, status, evidence count and the latest analyst decision, with
-filtering by time step, status, tier and decision, and sorting by score, rank,
+filtering by time step, status and decision, and sorting by score, batch rank,
 graph score or age.
 
 `queue_rank` is stored rather than recomputed: it is fixed the moment the batch
-is ranked, and a window function on every page load would be wasted work.
+is ranked, and a window function on every page load would be wasted work. It is
+a rank **within its own batch** — the interface calls it *batch rank* for that
+reason — because each time step is scored and cut separately. There is no global
+ranking, and inventing one would compare scores across time steps whose
+distributions genuinely differ.
 
 ## Deterministic evidence
 
@@ -204,12 +225,15 @@ confirmed_neighbour       0.40
 structural_similarity     0.25
 flagged_neighbour         0.20
 heuristic                 0.15
-graph_model_corroboration 0.15
+graph_model_corroboration 0.00   a model's own score, not evidence
 typology_reference        0.00   explains a signal; is not one
 ```
 
-Confidence is computed from `sum(strength x weight)` in Phase 4 — a pure
-function of assembled evidence, never self-reported by a language model.
+Confidence is a pure function of the assembled evidence — noisy-OR per kind,
+capped at that kind's weight — never self-reported by a language model. It is
+written at the end of the replay, so a case carries a confidence before any
+investigation is run. See `docs/agent.md` for why the two zero-weighted kinds
+are zero for different reasons.
 
 ## Leakage controls
 
@@ -226,6 +250,7 @@ function of assembled evidence, never self-reported by a language model.
 |---|---|
 | `POST /api/batches/{timestep}/replay` | Queue a replay. 202. Refuses time steps 1–34. |
 | `GET /api/batches` / `GET /api/batches/{timestep}` | Progress, read from `batch_runs` |
+| `GET /api/batches/available` | Every replayable time step, its size, and whether it has been replayed. Backs the Overview page's replay control. |
 | `GET /api/queue` | The queue, filtered and sorted |
 | `GET /api/cases/{id}` | Case with neighbourhood profile and evidence |
 | `GET /api/cases/{id}/evidence` | Evidence alone, ordered by contribution |

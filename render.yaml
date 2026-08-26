@@ -29,7 +29,9 @@ services:
     region: oregon
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerTarget: api
+    # No `dockerTarget` -- Render's Blueprint schema has no such field. The
+    # Dockerfile instead puts the `api` stage last, so the default build is
+    # the light image. Do not append stages after it.
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -93,7 +95,10 @@ services:
   #   plan: starter          # no free tier for background workers
   #   dockerfilePath: ./Dockerfile
   #   dockerContext: .
-  #   dockerTarget: worker   # adds torch, PyG, xgboost, LangGraph, google-genai
+  #   dockerCommand: celery -A argus.jobs.celery_app:celery_app worker --loglevel=info
+  #   # The worker stage is not the default build, so a hosted worker needs a
+  #   # separate Dockerfile whose final stage is `worker`, or a dockerCommand
+  #   # over an image that already carries the ML extras.
   #   autoDeploy: true
   #   envVars:
   #     - key: APP_ENV

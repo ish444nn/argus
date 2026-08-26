@@ -47,10 +47,12 @@ Because there is a single role and no data an analyst may see that another may n
 
 1. A batch of transactions is ingested into the graph, each linked to the transactions it sends to or receives from.
 2. The risk model scores every transaction in the batch using its own features and the transactions connected to it.
-3. Transactions above a fixed risk threshold are queued for investigation; the rest are stored but not surfaced.
+3. Transactions in the top slice of the batch by risk score are queued for investigation; the rest are stored but not surfaced. (*As built:* an exact top-k by rank at a chosen alert budget, defaulting to 1%, rather than a fixed score threshold — Elliptic's score distribution shifts across time steps, and a frozen cutoff collapsed test recall from 0.374 to 0.063.)
 4. For each queued transaction, the investigation agent retrieves its local neighbourhood, checks how many connected transactions are already confirmed illicit or previously flagged, evaluates a small set of structural heuristics (relay, fan-out, fan-in, layering chain, dense cluster), and looks for historically labelled transactions whose network behaviour resembles this one.
 5. The agent assembles a case report citing the specific evidence it found, and computes a confidence score from that evidence.
-6. Reports below the confidence threshold remain in a secondary queue; only high-confidence reports reach the analyst's primary queue.
+6. Every queued report carries a confidence computed from its evidence, and the analyst can sort and filter on it.
+
+> **Deviation, recorded.** This step originally split the queue into a primary and a secondary tier at a confidence threshold. It was **removed**: queue membership is decided by the risk model's ranking and the alert budget alone, and letting evidence confidence re-sort the queue afterwards conflated "how likely is this illicit" with "how much did we manage to find out about it". Confidence is now purely descriptive. See `docs/agent.md`.
 
 ### Analyst
 
@@ -158,7 +160,7 @@ Deployment follows a push to the default branch. Continuous integration lints, m
 - `edges` — source transaction, target transaction.
 - `risk_scores` — transaction, model version, score.
 - `transaction_embeddings` — transaction, model version, the graph model's learned representation.
-- `case_reports` — transaction, confidence, queue tier, status, narrative.
+- `case_reports` — transaction, confidence, status, narrative.
 - `evidence_items` — case, kind, summary, strength, and a reference to the transaction or typology passage it rests on.
 - `reviews` — case, analyst, decision, timestamp.
 - `typology_references` — source text, embedding, pattern tags, and the citation details of the document it came from.
@@ -177,7 +179,7 @@ The dataset's own construction makes the temporal argument unusually clean: its 
 
 ### The investigation agent
 
-The agent is not asked to rate its own confidence, since a language model's self-reported certainty is not a reliable signal of correctness. Confidence is instead computed from the evidence the agent actually assembles — how many corroborating signals it found and how strong each one is — and only reports crossing a fixed threshold reach the analyst's primary queue. Everything else is retained in a lower-priority queue rather than discarded, so no finding disappears silently.
+The agent is not asked to rate its own confidence, since a language model's self-reported certainty is not a reliable signal of correctness. Confidence is instead computed from the evidence the agent actually assembles — how many corroborating signals it found and how strong each one is. (*As built:* confidence describes the evidence and gates nothing. The primary/secondary split this paragraph originally described was removed; no finding disappears silently because no finding is demoted in the first place.)
 
 When a heuristic fires, the agent does not generate its own explanation of why the pattern matters — it retrieves the matching description from the typology corpus and cites it. The distinction matters: an invented explanation is a claim from the model, while a retrieved one is a claim the analyst can trace back to a source and check for themselves.
 
@@ -186,7 +188,7 @@ When a heuristic fires, the agent does not generate its own explanation of why t
 - The graph model's lift over the tabular baseline is measured and reported honestly, whichever way the comparison lands, against a rule fixed before the held-out split was read.
 - Every case report reaching the analyst queue cites at least one specific piece of evidence, and any typology language it uses is traceable to a retrieved reference rather than generated freely.
 - An analyst can move from the queue to a recorded decision without leaving the dashboard.
-- Below-threshold findings never appear in the primary queue.
+- Evidence confidence never changes which cases reach the analyst: the queue is the risk model's ranking cut at the alert budget, and nothing else.
 - Precision and recall on the illicit class, not raw accuracy, are the reported measures of model quality throughout.
 
 ## 10. Future work

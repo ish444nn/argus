@@ -74,9 +74,8 @@ def investigate_case(self, case_id: int) -> dict[str, Any]:
         result = investigation.investigate(session, case_id)
 
     log.info(
-        "investigate_case finished for case %s: confidence %s, tier %s",
+        "investigate_case finished for case %s: confidence %s",
         case_id,
         result.get("confidence"),
-        result.get("queue_tier"),
     )
     return result
