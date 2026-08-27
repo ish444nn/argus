@@ -91,6 +91,42 @@ def test_queue_rejects_an_unknown_sort_field(api):
     assert api.get("/api/queue", params={"sort_by": "id; DROP TABLE"}).status_code == 422
 
 
+@pytest.mark.parametrize("field", ["timestep", "status", "confidence"])
+@pytest.mark.parametrize("descending", [True, False])
+def test_every_column_the_queue_shows_can_be_sorted(api, field, descending):
+    """The table lets an analyst sort by any column they can scan down.
+
+    A column that looks sortable and is not is worse than one that plainly is
+    not, so this covers the three added alongside rank, risk and graph score.
+    """
+    body = api.get(
+        "/api/queue",
+        params={"sort_by": field, "descending": descending, "limit": 20},
+    ).json()
+
+    assert body["items"], "expected the replayed batch to have queued cases"
+
+
+def test_status_sorts_by_workflow_position_not_the_alphabet(api):
+    """Ascending puts the least progressed cases first.
+
+    The column shows a decision where one exists and a status otherwise, so
+    sorting it alphabetically on `status` would order rows by a word the
+    analyst cannot see.
+    """
+    ascending = api.get(
+        "/api/queue", params={"sort_by": "status", "descending": False, "limit": 100}
+    ).json()["items"]
+
+    def rank(item):
+        if item["latest_decision"] is not None:
+            return 4
+        return {"queued": 0, "investigating": 1, "failed": 2, "ready": 3}[item["status"]]
+
+    positions = [rank(item) for item in ascending]
+    assert positions == sorted(positions)
+
+
 def test_case_detail_includes_neighbourhood_and_evidence(api):
     case_id = api.get("/api/queue", params={"limit": 1}).json()["items"][0]["case_id"]
     case = api.get(f"/api/cases/{case_id}").json()

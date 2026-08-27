@@ -6,7 +6,9 @@ from pydantic import BaseModel
 
 
 class DependencyStatus(BaseModel):
-    status: Literal["ok", "error"]
+    #: `disabled` means the dependency was deliberately left out of this
+    #: deployment, which is not a fault and does not degrade the response.
+    status: Literal["ok", "error", "disabled"]
     detail: str | None = None
 
 

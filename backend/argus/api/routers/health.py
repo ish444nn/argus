@@ -55,7 +55,14 @@ def _redis_client(url: str) -> redis.Redis:
     return redis.Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
 
 
+#: Said once, by both the broker and the worker check, when the deployment was
+#: configured without a job queue.
+NO_BROKER = "not configured; this deployment serves results a local worker wrote"
+
+
 def _check_redis(settings: Settings) -> DependencyStatus:
+    if not settings.has_broker:
+        return DependencyStatus(status="disabled", detail=NO_BROKER)
     try:
         _redis_client(settings.redis_url).ping()
         return DependencyStatus(status="ok")
@@ -103,12 +110,14 @@ def health(session: SessionDep, settings: SettingsDep) -> HealthResponse:
         "redis": _check_redis(settings),
     }
     # The worker is checked through the broker, so it is only meaningful when
-    # the broker itself is reachable.
-    dependencies["worker"] = (
-        _check_worker(settings)
-        if dependencies["redis"].status == "ok"
-        else DependencyStatus(status="error", detail="broker unreachable")
-    )
+    # the broker itself is reachable -- and meaningless when there is no broker
+    # to reach, which is a configuration rather than a fault.
+    if not settings.has_broker:
+        dependencies["worker"] = DependencyStatus(status="disabled", detail=NO_BROKER)
+    elif dependencies["redis"].status == "ok":
+        dependencies["worker"] = _check_worker(settings)
+    else:
+        dependencies["worker"] = DependencyStatus(status="error", detail="broker unreachable")
 
     # A missing worker degrades the system but does not break the read-only
     # product: the queue, cases and evidence all still serve. Reporting it

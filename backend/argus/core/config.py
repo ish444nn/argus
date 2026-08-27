@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # PostgreSQL or Redis. Inside Compose these are overridden with the
     # service hostnames and standard ports.
     database_url: str = "postgresql+psycopg://argus:argus@localhost:5433/argus"
+    # Set this to an empty string to say "this deployment has no job broker".
+    # That is the hosted configuration: Render's free tier covers a web service
+    # and a static site but neither Redis nor a background worker, so the
+    # deployed API serves what a local worker already wrote and dispatches
+    # nothing. Declaring the absence is different from pointing production at
+    # `localhost`, which is still refused below -- one is an architecture, the
+    # other is a mistake that fails somewhere unhelpful.
     redis_url: str = "redis://localhost:6380/0"
 
     # Celery uses Redis db 0 as broker and db 1 as result backend. The result
@@ -70,6 +77,15 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.app_env == "production"
 
+    @property
+    def has_broker(self) -> bool:
+        """Is a job broker configured at all?
+
+        False means batch replay and investigation cannot be started from this
+        process. Callers report that plainly rather than trying to connect.
+        """
+        return bool(self.redis_url.strip())
+
     @model_validator(mode="after")
     def _check_llm_credentials(self) -> "Settings":
         if self.llm_provider == "gemini" and not self.gemini_api_key:
@@ -91,8 +107,13 @@ class Settings(BaseSettings):
         problems: list[str] = []
         if "localhost" in self.database_url or "127.0.0.1" in self.database_url:
             problems.append("DATABASE_URL still points at localhost")
-        if "localhost" in self.redis_url or "127.0.0.1" in self.redis_url:
-            problems.append("REDIS_URL still points at localhost")
+        # An empty REDIS_URL is a deliberate statement -- see the field above.
+        # A localhost one is not, and is still refused.
+        if self.has_broker and ("localhost" in self.redis_url or "127.0.0.1" in self.redis_url):
+            problems.append(
+                "REDIS_URL still points at localhost (set it to a reachable "
+                "broker, or to an empty string if this deployment has no worker)"
+            )
         if any("localhost" in origin for origin in self.allowed_origins):
             problems.append("CORS_ORIGINS still contains localhost")
         if problems:

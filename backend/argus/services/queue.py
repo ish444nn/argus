@@ -22,12 +22,36 @@ from argus.agent.tools.graph_tools import NeighbourhoodProfile, neighbourhood_pr
 # model's own score is not in it.
 _OBSERVED = list(OBSERVED_KINDS)
 
-SortField = Literal["risk_score", "queue_rank", "created_at", "graph_score"]
+SortField = Literal[
+    "risk_score",
+    "queue_rank",
+    "created_at",
+    "graph_score",
+    "timestep",
+    "status",
+    "confidence",
+]
+# `status` sorts by where the case sits in the workflow rather than by the
+# alphabet, because that is what the column shows: a decided case reads as its
+# decision, not as `ready`. Ascending is therefore "least progressed first",
+# which is the order an analyst picking up work wants.
+_STATUS_ORDER = """
+    CASE
+        WHEN latest.decision IS NOT NULL THEN 4
+        WHEN c.status = 'ready' THEN 3
+        WHEN c.status = 'failed' THEN 2
+        WHEN c.status = 'investigating' THEN 1
+        ELSE 0
+    END
+"""
 SORTABLE: dict[str, str] = {
     "risk_score": "c.risk_score",
     "queue_rank": "c.queue_rank",
     "created_at": "c.created_at",
     "graph_score": "c.graph_score",
+    "timestep": "t.timestep",
+    "status": _STATUS_ORDER,
+    "confidence": "c.confidence",
 }
 
 
