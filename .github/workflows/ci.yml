@@ -57,7 +57,11 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10
+        # Pinned to a commit, not a tag. `astral-sh/setup-uv` publishes moving
+        # major tags only up to v7 -- there is no `v8`, `v9` or `v10` ref, so
+        # `@v10` failed the whole job with "unable to find version v10" before
+        # a single step ran. A SHA cannot stop resolving.
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
@@ -72,8 +76,8 @@ jobs:
           #
           # Three things fix that, and all three are applied. The worker no
           # longer runs under uv (below), it is killed before the post steps
-          # (below), and pruning is off. v10 already defaults this to false and
-          # runs on Node 24; it is named anyway so a future default cannot
+          # (below), and pruning is off. v9.0.0 already defaults this to false
+          # and runs on Node 24; it is named anyway so a future default cannot
           # quietly turn a five-minute lock wait back on.
           prune-cache: false
 
