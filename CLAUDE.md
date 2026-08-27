@@ -464,6 +464,63 @@ MEASURED:
   back. It still writes nothing server-side -- it re-cuts stored scores with a
   window function, exactly as before.
 
+## Phase 6.4 findings
+
+- **The Phase 6.3 CI fix was never in the failing run.** Run 4 was on commit
+  `04bf76a`, which contains only the backend files -- the workflow, render.yaml,
+  docs and every frontend change were left uncommitted. Check
+  `git show --stat <sha>` against the run's `head_sha` before diagnosing a CI
+  failure again; four hours went into re-diagnosing a fix that had not shipped.
+- **The uv cache lock is now reproduced, not inferred.** Running
+  `uv cache prune --ci` with any uv process alive prints "Cache is currently
+  in-use, waiting for other uv processes to finish" and blocks. In CI the
+  holder is the background worker started via `uv run`, which lives for the
+  whole job, so prune waits out its timeout and exits 2 -- the failed step ran
+  exactly 5m00s. Fixed three ways: worker from `.venv/bin/celery`, killed in an
+  `always()` step before post-steps, and `prune-cache: false` named explicitly
+  on `setup-uv@v10`.
+- **`postgresql://` means psycopg2 to SQLAlchemy.** This project installs
+  `psycopg[binary]` (v3) and never psycopg2, so pasting Supabase's own
+  connection string into `DATABASE_URL` -- exactly what the guide asked for --
+  killed the container at import with `No module named 'psycopg2'`.
+  `core.config.normalise_database_url` rewrites `postgresql://` and
+  `postgres://` to `postgresql+psycopg://` on load; a URL that already names a
+  driver is untouched. One place, so Alembic, the worker and the API all agree.
+- **The alert budget was a label, not a setting.** `POST /batches/{ts}/replay`
+  never passed a budget, so `replay_batch` always fell back to
+  `settings.alert_budget` and the queue could only ever be 1%. The slider
+  re-cut a *displayed* distribution with a window function and wrote nothing.
+- **The budget now applies through the existing domain rule.**
+  `POST /api/batches/apply-budget?budget=` dispatches the same `replay_batch`
+  task once per replayed time step. Re-cutting stored scores at read time was
+  rejected on purpose: evidence is gathered during replay, so a read-time queue
+  would be rows with no evidence, no confidence and no case to open -- the
+  count would move and the product behind it would not. Measured: 1% -> 154,
+  2% -> 306, 3% -> 458, each equal to `sum(ceil(batch_size * budget))`.
+- **"canonical" vs "exploring" is `applied_alert_budget`.** The overview reads
+  `CASE WHEN count(DISTINCT alert_budget) = 1 THEN min(alert_budget) END` over
+  `batch_runs`: the budget the stored queue was genuinely built at, or NULL
+  when the batches disagree. Part-applied is a real state and is reported, not
+  averaged away. Nothing compares against the number 0.01.
+- **The overview's alert count now counts `case_reports`.** It summed
+  `batch_runs.queued_count`, which is a second definition of the same number:
+  a case retained across a re-replay is in the queue but not in that run's
+  selection, so the two screens disagreed by exactly the cases someone had
+  worked on.
+- **Lowering the budget used to delete investigations.** `_sync_queue` retained
+  only *reviewed* cases, so re-applying a smaller budget destroyed every
+  written report nobody had decided on yet. It now retains a case that carries
+  a narrative too.
+- **`.panel` is a flex column.** Bento rows use `items-stretch`, so a card that
+  runs short hands its spare height to its own body instead of leaving a ragged
+  bottom edge. Row spans are 5/4/3, not 6/3/3: at span-3 the budget card's one
+  sentence wrapped.
+- **The risk distribution's selected slice needs a floor.** Low bands hold tens
+  of thousands and high bands hold hundreds, so on a shared linear scale the
+  selected part of a high band is a fraction of a pixel -- and it is the point
+  of the chart. `max(2px, ...)` keeps it visible; the numerals carry the
+  quantity.
+
 ## Phase end protocol
 
 Report: What I changed / Why / Tests-checks / Important decisions / Suggested commit.

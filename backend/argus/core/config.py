@@ -8,11 +8,37 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/argus/core/config.py -> parents[3] is the repository root.
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# The one PostgreSQL driver this project installs. SQLAlchemy picks a driver
+# from the URL scheme, and a bare `postgresql://` still means **psycopg2**,
+# which is not a dependency here and never will be -- `psycopg[binary]` (v3) is.
+DB_DRIVER = "postgresql+psycopg"
+
+
+def normalise_database_url(url: str) -> str:
+    """Bind a PostgreSQL URL to the driver that is actually installed.
+
+    Every managed Postgres hands out a connection string in one of two shapes:
+    `postgresql://...` (Supabase, Render, RDS) or the older `postgres://`
+    (Heroku). SQLAlchemy maps both to psycopg2, so pasting either one into
+    `DATABASE_URL` produced `ModuleNotFoundError: No module named 'psycopg2'`
+    at import time -- a failure with no relationship to what was actually
+    wrong, in a deployment that had been configured exactly as documented.
+
+    Rewriting the scheme here rather than in `create_engine` means Alembic,
+    the worker, the API and every test read the same corrected URL. A URL that
+    already names a driver is left alone, so `postgresql+asyncpg://` or a
+    deliberate `+psycopg2` still says what it says.
+    """
+    for prefix in ("postgresql://", "postgres://"):
+        if url.startswith(prefix):
+            return DB_DRIVER + "://" + url[len(prefix) :]
+    return url
 
 
 class Settings(BaseSettings):
@@ -68,6 +94,11 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.6-flash"
     embedding_model: str = "gemini-embedding-001"
     embedding_dim: int = Field(default=768, ge=1)
+
+    @field_validator("database_url")
+    @classmethod
+    def _bind_the_installed_driver(cls, value: str) -> str:
+        return normalise_database_url(value)
 
     @property
     def allowed_origins(self) -> list[str]:

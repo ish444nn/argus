@@ -54,16 +54,28 @@ jobs:
       LLM_PROVIDER: stub
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install uv
-        # v10 rather than v5 for two concrete reasons: it runs on Node 24, so
-        # GitHub stops warning that the action's runtime is deprecated, and it
-        # no longer prunes the uv cache in its post-job step by default.
         uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
+          # The job's post step used to run `uv cache prune --ci`, which takes
+          # a lock on the uv cache. Reproduced locally: with any uv process
+          # still alive, prune prints "Cache is currently in-use, waiting for
+          # other uv processes to finish" and blocks. In CI the process that
+          # held it was the background Celery worker, started through
+          # `uv run`, which lives for the whole job -- so prune waited out its
+          # timeout and exited 2, failing a job whose tests had all passed.
+          # The run's own timings show it: the step took exactly 5m00s.
+          #
+          # Three things fix that, and all three are applied. The worker no
+          # longer runs under uv (below), it is killed before the post steps
+          # (below), and pruning is off. v10 already defaults this to false and
+          # runs on Node 24; it is named anyway so a future default cannot
+          # quietly turn a five-minute lock wait back on.
+          prune-cache: false
 
       - name: Install dependencies
         working-directory: backend
@@ -118,12 +130,10 @@ jobs:
         # Background processes survive to later steps in the same job, so the
         # worker is still listening when pytest runs.
         #
-        # Launched from the venv directly rather than through `uv run`. A
-        # long-lived `uv run` keeps its own uv process alive for as long as the
-        # child, and that process holds a lock on the uv cache -- which then
-        # blocks anything the job does with the cache afterwards. That is what
-        # broke the previous run: the post-job cache step could not take the
-        # lock and exited 2, failing a job whose tests had all passed.
+        # Launched from the venv directly rather than through `uv run`: see
+        # the note on the install step for what a long-lived `uv run` does to
+        # the post-job cache handling. `.venv/bin/celery` is a plain console
+        # script, so no uv process outlives this step.
         run: |
           .venv/bin/celery -A argus.jobs.celery_app:celery_app worker \
             --loglevel=info --concurrency=1 > celery.log 2>&1 &
@@ -156,23 +166,33 @@ jobs:
         run: cat celery.log || true
 
       - name: Stop the Celery worker
-        # Always, so no background process outlives the steps and interferes
-        # with the actions' own post-job cleanup.
+        # Always, and before any action's post step runs, so nothing this job
+        # started is still holding a file lock during cleanup.
         if: always()
         working-directory: backend
         run: |
           if [ -f celery.pid ]; then
             kill "$(cat celery.pid)" 2>/dev/null || true
+            # Wait for it to actually go. `kill` only asks.
+            for _ in $(seq 1 10); do
+              kill -0 "$(cat celery.pid)" 2>/dev/null || break
+              sleep 1
+            done
+            kill -9 "$(cat celery.pid)" 2>/dev/null || true
           fi
+          # Belt and braces: any worker not started through the pid file.
+          pkill -f 'celery.*argus.jobs.celery_app' 2>/dev/null || true
+          echo "remaining uv/celery processes:"
+          pgrep -a -f 'uv|celery' || echo "  none"
 
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm

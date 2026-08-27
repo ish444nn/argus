@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -167,12 +169,20 @@ def test_missing_case_returns_404(api):
 
 
 def test_batch_status_reads_from_the_database(api):
+    """The run row describes its own selection.
+
+    This used to assert `alert_budget == 0.01`, which quietly assumed the
+    budget could only ever be the configured default. It can be changed now,
+    so the assertion is the invariant that actually matters and holds at any
+    budget: the batch queued exactly the top-k its recorded budget asks for.
+    """
     body = api.get(f"/api/batches/{REPLAY_TIMESTEP}").json()
 
     assert body["timestep"] == REPLAY_TIMESTEP
     assert body["status"] == "completed"
     assert body["scored_count"] > body["queued_count"] > 0
-    assert body["alert_budget"] == pytest.approx(0.01)
+    assert 0 < body["alert_budget"] <= 0.5
+    assert body["queued_count"] == math.ceil(body["scored_count"] * body["alert_budget"])
 
 
 def test_unreplayed_batch_returns_404(api):

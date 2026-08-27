@@ -124,7 +124,13 @@ export type CaseDetail = {
 };
 
 export type Overview = {
+  /** The budget this response was counted at — what the screen is previewing. */
   alert_budget: number;
+  /**
+   * The budget the stored queue was actually built at, or null when nothing
+   * has been replayed or the batches disagree (a part-applied change).
+   */
+  applied_alert_budget: number | null;
   llm_provider: string;
   replay_range: [number, number];
   batches: {
@@ -319,6 +325,26 @@ export function getBatches(): Promise<BatchRun[]> {
 
 export function startReplay(timestep: number): Promise<{ task_id: string }> {
   return request<{ task_id: string }>(`/api/batches/${timestep}/replay`, {
+    method: "POST",
+  });
+}
+
+export type BudgetApplied = {
+  alert_budget: number;
+  timesteps: number[];
+  task_ids: string[];
+  status_url: string;
+};
+
+/**
+ * Rebuild every replayed batch's queue at a new alert budget.
+ *
+ * This is a real job, not a view change: the backend re-runs the same top-k
+ * selection replay uses, so the queue that comes back has evidence and
+ * confidence like any other.
+ */
+export function applyBudget(budget: number): Promise<BudgetApplied> {
+  return request<BudgetApplied>(`/api/batches/apply-budget?budget=${budget}`, {
     method: "POST",
   });
 }

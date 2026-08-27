@@ -141,7 +141,14 @@ chunks, **0 dangling citations**, total size **90 MB**.
 
    | Service | Variable | Value |
    |---|---|---|
-   | `argus-api` | `DATABASE_URL` | your `postgresql+psycopg://…` URI |
+   | `argus-api` | `DATABASE_URL` | your Supabase connection URI, pasted as-is |
+
+   Paste Supabase's URI unchanged. It starts `postgresql://`, and the app
+   rewrites the scheme to `postgresql+psycopg://` on load, because a bare
+   `postgresql://` means **psycopg2** to SQLAlchemy and this project installs
+   psycopg 3. Without that rewrite the container died at import with
+   `ModuleNotFoundError: No module named 'psycopg2'`, which named a package
+   nobody had asked for and pointed nowhere near the actual mistake.
 
    `REDIS_URL` is **not** one of them: `render.yaml` sets it to an empty
    string, which is how this deployment says "no job broker". Do not put a
@@ -244,5 +251,6 @@ The worker is on your machine; only the results land in the hosted database.
 | `/health` shows `redis`/`worker` `disabled` | Expected — no hosted worker |
 | API exits with `REDIS_URL still points at localhost` | A placeholder was set in the dashboard. Clear it: empty means "no broker". |
 | First request takes ~50 s | Render free tier cold start |
+| `ModuleNotFoundError: No module named 'psycopg2'` | An old build. The URL scheme is normalised on load now; redeploy. |
 | `relation "case_reports" does not exist` | Step 2 not run against this database |
 | Snapshot load fails on a foreign key | Loading into a non-empty database — truncate first |

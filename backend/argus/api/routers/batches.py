@@ -11,7 +11,7 @@ survives a worker restart and means the same thing to every caller.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
 from argus.api.deps import SessionDep, SettingsDep, dispatch
@@ -20,6 +20,7 @@ from argus.api.schemas import (
     BatchAvailability,
     BatchRemoved,
     BatchRunOut,
+    BudgetApplied,
     ReplayDispatched,
 )
 from argus.services import batches as batch_service
@@ -28,8 +29,73 @@ from argus.services import queue as queue_service
 router = APIRouter(prefix="/api/batches", tags=["batches"])
 
 
+def _applied_budget(session: SessionDep) -> float | None:
+    """The budget every stored batch was replayed at, or None if they differ."""
+    return session.execute(
+        text("""
+        SELECT CASE WHEN count(DISTINCT alert_budget) = 1 THEN min(alert_budget) END
+        FROM batch_runs
+        """)
+    ).scalar_one_or_none()
+
+
+@router.post("/apply-budget", response_model=BudgetApplied, status_code=202)
+def apply_budget(
+    session: SessionDep,
+    settings: SettingsDep,
+    budget: float = Query(gt=0, le=0.5, description="Alert budget to apply, as a fraction."),
+) -> BudgetApplied:
+    """Rebuild every replayed batch's queue at a new alert budget.
+
+    The alert budget is not a display preference: it is the fraction of each
+    batch that becomes an alert, and the only way to change which transactions
+    are alerts is to re-run the selection. So this dispatches the same
+    `replay_batch` task the Batches panel does, once per replayed time step,
+    with the new budget -- the existing top-k-per-batch rule, not a second
+    implementation of it.
+
+    Cheaper alternatives were rejected on purpose. Re-cutting the stored scores
+    at read time would give a queue of transactions with no evidence, no
+    confidence and no case to open, because evidence is gathered during replay;
+    the count would move and the product behind it would not.
+    """
+    timesteps = list(
+        session.execute(text("SELECT timestep FROM batch_runs ORDER BY timestep")).scalars().all()
+    )
+    if not timesteps:
+        raise HTTPException(
+            status_code=409,
+            detail="No batch has been replayed yet, so there is no queue to rebuild.",
+        )
+
+    dispatched = [
+        {"timestep": int(ts), "task_id": dispatch("argus.replay_batch", int(ts), budget)}
+        for ts in timesteps
+    ]
+    return BudgetApplied(
+        alert_budget=budget,
+        timesteps=[int(ts) for ts in timesteps],
+        task_ids=[item["task_id"] for item in dispatched],
+        status_url="/api/overview",
+    )
+
+
 @router.post("/{timestep}/replay", response_model=ReplayDispatched, status_code=202)
-def start_replay(timestep: int, session: SessionDep, settings: SettingsDep) -> ReplayDispatched:
+def start_replay(
+    timestep: int,
+    session: SessionDep,
+    settings: SettingsDep,
+    budget: float | None = Query(
+        default=None,
+        gt=0,
+        le=0.5,
+        description=(
+            "Alert budget for this replay. Omit to use the budget the rest of "
+            "the queue is already built at, falling back to the configured "
+            "default."
+        ),
+    ),
+) -> ReplayDispatched:
     """Queue a replay of one time step.
 
     Returns 202 immediately: scoring plus evidence gathering takes minutes,
@@ -45,11 +111,18 @@ def start_replay(timestep: int, session: SessionDep, settings: SettingsDep) -> R
             ),
         )
 
-    task_id = dispatch("argus.replay_batch", timestep)
+    # A batch imported while the queue sits at 3% must join it at 3%, or the
+    # overview would report one applied budget for some batches and another
+    # for the rest.
+    effective = budget if budget is not None else _applied_budget(session)
+    if effective is None:
+        effective = settings.alert_budget
+
+    task_id = dispatch("argus.replay_batch", timestep, effective)
     return ReplayDispatched(
         task_id=task_id,
         timestep=timestep,
-        alert_budget=settings.alert_budget,
+        alert_budget=effective,
         status_url=f"/api/batches/{timestep}",
     )
 

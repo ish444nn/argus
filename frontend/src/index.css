@@ -171,6 +171,16 @@ body {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r);
+  /* A column so that a panel stretched to its row's height hands the spare
+     space to its body rather than leaving it below the border. */
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+}
+
+.panel > .panel-body {
+  flex: 1;
 }
 
 .panel-head {

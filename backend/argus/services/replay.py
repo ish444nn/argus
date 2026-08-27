@@ -159,7 +159,8 @@ def _sync_queue(
     stale = session.execute(
         text("""
         SELECT c.id, c.tx_id,
-               EXISTS (SELECT 1 FROM reviews r WHERE r.case_report_id = c.id) AS reviewed
+               EXISTS (SELECT 1 FROM reviews r WHERE r.case_report_id = c.id) AS reviewed,
+               c.narrative IS NOT NULL AS investigated
         FROM case_reports c
         JOIN transactions t ON t.tx_id = c.tx_id
         WHERE t.timestep = :timestep
@@ -172,13 +173,19 @@ def _sync_queue(
     for row in stale:
         if int(row.tx_id) in selected_ids:
             continue
-        if row.reviewed:
-            # An analyst has spent time on this. Keep it.
+        if row.reviewed or row.investigated:
+            # Work has been done on this case -- an analyst's decision, or a
+            # written and cited investigation. Lowering the alert budget is a
+            # capacity decision about what to look at next; it is not a reason
+            # to delete what has already been looked at. (Only reviews were
+            # kept before, so re-applying a smaller budget silently destroyed
+            # every investigation nobody had decided on yet.)
             retained += 1
             log.warning(
-                "case %s (tx %s) left the queue but has reviews; retaining",
+                "case %s (tx %s) left the queue but has %s; retaining",
                 row.id,
                 row.tx_id,
+                "reviews" if row.reviewed else "a written investigation",
             )
             continue
         session.execute(delete(CaseReport).where(CaseReport.id == row.id))

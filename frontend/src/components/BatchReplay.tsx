@@ -113,6 +113,7 @@ export function BatchReplay() {
     queryClient.invalidateQueries({ queryKey: ["batches"] });
     queryClient.invalidateQueries({ queryKey: ["overview"] });
     queryClient.invalidateQueries({ queryKey: ["queue"] });
+    queryClient.invalidateQueries({ queryKey: ["applied-budget"] });
   };
 
   const replay = useMutation({

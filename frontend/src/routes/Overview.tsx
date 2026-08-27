@@ -1,6 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { getOverview, type Overview as OverviewData } from "../api/client";
+import {
+  applyBudget,
+  getHealth,
+  getOverview,
+  type Overview as OverviewData,
+} from "../api/client";
 import { BUDGETS, budgetLabel, DEFAULT_BUDGET, useBudget } from "../budget";
 import { BatchReplay } from "../components/BatchReplay";
 import { evidenceMeta } from "../evidence";
@@ -25,59 +31,57 @@ const RISK_COLOURS = [
   "var(--risk-4)",
 ];
 
-function pct(value: number) {
-  return `${(value * 100).toFixed(2)}%`;
-}
-
 function RiskBands({ data }: { data: OverviewData }) {
   const max = Math.max(...data.risk_distribution.map((b) => b.count), 1);
   const total = data.risk_distribution.reduce((sum, b) => sum + b.count, 0);
   if (!total) return <p className="text-[var(--text-3)]">Nothing scored yet</p>;
 
   return (
-    <div>
-      <ul className="space-y-2">
-        {data.risk_distribution.map((band, i) => (
-          <li key={band.band} className="flex items-center gap-3 text-[12px]">
-            <span className="num w-16 shrink-0 text-[var(--text-3)]">{band.band}</span>
-            <span className="relative h-3.5 flex-1 bg-[var(--surface-2)]">
-              {/* Everything scored in this band. */}
+    <ul className="space-y-2.5">
+      {data.risk_distribution.map((band, i) => (
+        <li key={band.band} className="flex items-center gap-3 text-[12px]">
+          <span className="num w-[4.5rem] shrink-0 text-[var(--text-3)]">{band.band}</span>
+          <span className="relative h-4 flex-1 bg-[var(--surface-2)]">
+            {/* Everything scored in this band. */}
+            <span
+              className="absolute inset-y-0 left-0"
+              style={{
+                width: `${(band.count / max) * 100}%`,
+                background: RISK_COLOURS[i],
+                opacity: 0.3,
+              }}
+            />
+            {/* What the budget takes from it. The low bands hold tens of
+                thousands of transactions and the high ones hold hundreds, so
+                on a shared linear scale the selected slice of a high band is
+                a fraction of a pixel wide -- and the selected slice is the
+                entire point of the chart. A floor of 2px keeps it visible
+                without misstating the width, and the numerals carry the
+                actual quantity. */}
+            {band.would_alert > 0 && (
               <span
-                className="absolute inset-y-0 left-0"
+                className="absolute inset-y-0 left-0 border-r"
                 style={{
-                  width: `${(band.count / max) * 100}%`,
+                  width: `max(2px, ${(band.would_alert / max) * 100}%)`,
                   background: RISK_COLOURS[i],
-                  opacity: 0.35,
+                  borderColor: "var(--text)",
                 }}
               />
-              {/* What the selected budget would take from it. */}
-              {band.would_alert > 0 && (
-                <span
-                  className="absolute inset-y-0 left-0 border-r-2"
-                  style={{
-                    width: `${(band.would_alert / max) * 100}%`,
-                    background: RISK_COLOURS[i],
-                    borderColor: "var(--text)",
-                  }}
-                  title={`${band.would_alert} would be alerted at ${pct(data.alert_budget)}`}
-                />
-              )}
-            </span>
-            <span className="num w-24 shrink-0 text-right text-[var(--text-2)]">
+            )}
+          </span>
+          <span className="num w-[5.5rem] shrink-0 text-right">
+            <span
+              style={{
+                color: band.would_alert ? "var(--text)" : "var(--text-3)",
+              }}
+            >
               {band.would_alert.toLocaleString()}
-              <span className="text-[var(--text-3)]">/{band.count.toLocaleString()}</span>
             </span>
-          </li>
-        ))}
-      </ul>
-      <p
-        className="mt-3 border-t border-[var(--line)] pt-2 text-[11px] text-[var(--text-3)]"
-        title="Solid: selected into the queue at the current budget. Faint: scored, not selected."
-      >
-        <span className="num text-[var(--text-2)]">{total.toLocaleString()}</span>{" "}
-        scored · selected / in band
-      </p>
-    </div>
+            <span className="text-[var(--text-3)]">/{band.count.toLocaleString()}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -95,20 +99,53 @@ function tickLeft(index: number, count: number): string {
   return `calc(var(--range-thumb) / 2 + (100% - var(--range-thumb)) * ${fraction})`;
 }
 
+/**
+ * What the chosen budget is doing right now.
+ *
+ * Derived from data, never from the number itself. `canonical` means the
+ * stored queue was genuinely built at this budget; `exploring` means the
+ * screen is previewing a budget nobody has applied yet, so the queue still
+ * holds the other one; `applying` means the batches are being rebuilt.
+ */
+type BudgetState = "canonical" | "exploring" | "applying" | "mixed";
+
+/** Budgets are decimal fractions read back through JSON; compare them as such. */
+function sameBudget(a: number | null, b: number | null): boolean {
+  if (a === null || b === null) return false;
+  return Math.abs(a - b) < 1e-9;
+}
+
+const STATE_META: Record<BudgetState, string> = {
+  canonical: "applied to the queue",
+  exploring: "preview — not applied",
+  applying: "rebuilding the queue",
+  mixed: "batches disagree",
+};
+
 function BudgetControl({
   budget,
   onChange,
   data,
-  pending,
+  state,
+  progress,
+  onApply,
+  canApply,
+  error,
 }: {
   budget: number;
   onChange: (value: number) => void;
   data: OverviewData;
-  pending: boolean;
+  state: BudgetState;
+  progress: { done: number; total: number };
+  onApply: () => void;
+  canApply: boolean;
+  error: string | null;
 }) {
   const preview = data.budget_preview;
   const index = Math.max(0, BUDGETS.indexOf(budget));
   const defaultIndex = BUDGETS.indexOf(DEFAULT_BUDGET);
+  const applying = state === "applying";
+  const applied = data.applied_alert_budget;
 
   return (
     <div>
@@ -116,23 +153,14 @@ function BudgetControl({
         <p className="num text-[1.5rem] leading-none text-[var(--text)]">
           {budgetLabel(budget)}
         </p>
-        <p className="text-right text-[11px] text-[var(--text-3)]" role="status">
-          {pending ? (
-            <span className="flex items-center justify-end gap-1.5 text-[var(--text-2)]">
-              <span
-                className="pulse-dot size-1.5 rounded-full bg-[var(--measured)]"
-                aria-hidden
-              />
-              Recounting
-            </span>
-          ) : (
-            <>
-              <span className="num text-[var(--text-2)]">
-                {preview.selected.toLocaleString()}
-              </span>{" "}
-              of {preview.scored.toLocaleString()} selected
-            </>
-          )}
+        <p className="text-right text-[11px] text-[var(--text-3)]">
+          <span className="num text-[var(--text-2)]">
+            {(state === "canonical"
+              ? data.batches.queued
+              : preview.selected
+            ).toLocaleString()}
+          </span>{" "}
+          of {preview.scored.toLocaleString()}
         </p>
       </div>
 
@@ -143,10 +171,11 @@ function BudgetControl({
         max={BUDGETS.length - 1}
         step={1}
         value={index}
+        disabled={applying}
         onChange={(e) => onChange(BUDGETS[Number(e.target.value)])}
         aria-label="Alert budget"
-        aria-valuetext={`${budgetLabel(budget)}${budget === DEFAULT_BUDGET ? ", the default" : ""}`}
-        title="How much of each scored batch enters the queue. Re-selects from the existing scores; it does not retrain the model or change a risk score."
+        aria-valuetext={`${budgetLabel(budget)}, ${STATE_META[state]}`}
+        title="The fraction of each scored batch that becomes an alert. Applying it re-runs the selection, so the queue changes."
       />
 
       {/* Ticks double as the scale and the affordance: seven stops, each mark
@@ -157,7 +186,7 @@ function BudgetControl({
             key={option}
             className="group absolute top-0 flex -translate-x-1/2 flex-col items-center gap-1 py-0.5"
             style={{ left: tickLeft(i, BUDGETS.length) }}
-            onClick={() => onChange(option)}
+            onClick={() => !applying && onChange(option)}
             tabIndex={-1}
             aria-hidden
           >
@@ -167,9 +196,11 @@ function BudgetControl({
                 background:
                   i === index
                     ? "var(--measured)"
-                    : i === defaultIndex
-                      ? "var(--text-3)"
-                      : "var(--line-2)",
+                    : sameBudget(option, applied)
+                      ? "var(--text-2)"
+                      : i === defaultIndex
+                        ? "var(--text-3)"
+                        : "var(--line-2)",
               }}
             />
             <span
@@ -186,23 +217,120 @@ function BudgetControl({
           </button>
         ))}
       </div>
+
+      {/* The action, and only when there is something to do. Changing the
+          budget changes which transactions are alerts, which means re-running
+          the selection -- so it is an operation with a duration, not a
+          setting that takes effect on release. */}
+      <div className="mt-1 border-t border-[var(--line)] pt-2.5">
+        {applying ? (
+          <p
+            className="flex items-center gap-2 text-[12px] text-[var(--text-2)]"
+            role="status"
+            aria-live="polite"
+          >
+            <span
+              className="pulse-dot size-1.5 rounded-full bg-[var(--measured)]"
+              aria-hidden
+            />
+            Rebuilding the queue — batch{" "}
+            <span className="num">
+              {Math.min(progress.done + 1, progress.total)}
+            </span>{" "}
+            of <span className="num">{progress.total}</span>
+          </p>
+        ) : state === "canonical" ? (
+          <p className="text-[12px] text-[var(--text-3)]">
+            The queue holds the top{" "}
+            <span className="num text-[var(--text-2)]">{budgetLabel(budget)}</span> of
+            every batch.
+          </p>
+        ) : (
+          <>
+            <button
+              className="btn btn-primary w-full !justify-center"
+              onClick={onApply}
+              disabled={!canApply}
+              title={
+                canApply
+                  ? undefined
+                  : "Rebuilding the queue runs the scoring job, which needs the local Celery worker."
+              }
+            >
+              Rebuild the queue at {budgetLabel(budget)}
+            </button>
+            <p className="mt-2 text-[11px] text-[var(--text-3)]">
+              {applied === null
+                ? "Batches were built at different budgets."
+                : `The queue is still the top ${budgetLabel(applied)}.`}
+            </p>
+          </>
+        )}
+        {error && (
+          <p className="mt-2 text-[11px] text-[var(--bad)]" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
 
 export function Overview() {
   const { budget, setBudget } = useBudget();
+  const queryClient = useQueryClient();
+
+  // The budget an apply is in flight for, or null. Cleared by the data
+  // itself: the run is finished when every batch has stopped and the stored
+  // queue reports the budget we asked for.
+  const [applyingFor, setApplyingFor] = useState<number | null>(null);
+
   const { data, isPending, error, refetch, isFetching } = useQuery({
     queryKey: ["overview", budget],
     queryFn: () => getOverview(budget),
     placeholderData: (previous) => previous,
-    refetchInterval: 20_000,
+    // Rebuilding the queue is a job with a duration, so the screen watches it
+    // rather than waiting for the next slow poll.
+    refetchInterval: (query) =>
+      (query.state.data?.batches.running ?? 0) > 0 || applyingFor !== null ? 1500 : 20_000,
   });
 
-  // The previous budget's figures are still on screen until the API answers
-  // for the new one. Comparing what was asked for with what the response was
-  // counted at is the real state of the request — no timer involved.
-  const recounting = data !== undefined && data.alert_budget !== budget;
+  const health = useQuery({ queryKey: ["health"], queryFn: getHealth });
+  const workerUp = health.data?.dependencies?.worker?.status === "ok";
+
+  const apply = useMutation({
+    mutationFn: () => applyBudget(budget),
+    onMutate: () => setApplyingFor(budget),
+    onError: () => setApplyingFor(null),
+  });
+
+  // Every derived state below reads from the response, not from the number.
+  const applied = data?.applied_alert_budget ?? null;
+  const running = data?.batches.running ?? 0;
+  const settled =
+    data !== undefined && running === 0 && sameBudget(applied, applyingFor);
+  const applying = apply.isPending || (applyingFor !== null && !settled);
+
+  const state: BudgetState = applying
+    ? "applying"
+    : applied === null
+      ? "mixed"
+      : sameBudget(applied, budget)
+        ? "canonical"
+        : "exploring";
+
+  // When the rebuild lands, the queue's contents have changed underneath any
+  // cached page of it. Drop them so the Queue screen cannot show the old
+  // selection while this one shows the new count.
+  const wasApplying = useRef(false);
+  useEffect(() => {
+    if (wasApplying.current && !applying) {
+      queryClient.invalidateQueries({ queryKey: ["queue"] });
+      queryClient.invalidateQueries({ queryKey: ["batches"] });
+      queryClient.invalidateQueries({ queryKey: ["applied-budget"] });
+    }
+    wasApplying.current = applying;
+  }, [applying, queryClient]);
 
   return (
     <div className="mx-auto max-w-[1500px] px-6 py-6">
@@ -284,21 +412,23 @@ export function Overview() {
               {/* Bento.
                   Twelve columns, and each card takes the width its content
                   actually needs rather than a third because there are three of
-                  them. The risk distribution has five labelled bands and wants
-                  the room; the decisions card is three rows and does not. Two
-                  rows of unequal spans read as a composition; six identical
-                  thirds read as a form. */}
-              <div className="mt-6 grid grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-12">
+                  them. Two rows of unequal spans read as a composition; six
+                  identical thirds read as a form.
+                  `items-stretch` rather than `items-start`: the cards in a row
+                  carry different amounts of content, and letting each stop at
+                  its own height left the row with a ragged bottom edge that
+                  read as an accident rather than a decision. */}
+              <div className="mt-5 grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2 xl:grid-cols-12">
                 <Panel
                   title="Risk distribution"
                   // The budget is a top-k within each batch, not across the
                   // pool, so saying which makes the band counts add up.
                   meta={`top ${budgetLabel(budget)} of each batch`}
-                  className="xl:col-span-6"
+                  className="xl:col-span-5"
                 >
                   <div
                     className="panel-body transition-opacity duration-150"
-                    style={{ opacity: recounting ? 0.5 : 1 }}
+                    style={{ opacity: applying ? 0.5 : 1 }}
                   >
                     <RiskBands data={data} />
                   </div>
@@ -306,15 +436,22 @@ export function Overview() {
 
                 <Panel
                   title="Alert budget"
-                  meta={budget === DEFAULT_BUDGET ? "canonical" : "exploring"}
-                  className="xl:col-span-3"
+                  meta={STATE_META[state]}
+                  className="xl:col-span-4"
                 >
                   <div className="panel-body">
                     <BudgetControl
                       budget={budget}
                       onChange={setBudget}
                       data={data}
-                      pending={recounting}
+                      state={state}
+                      progress={{
+                        done: data.batches.runs - running,
+                        total: data.batches.runs,
+                      }}
+                      onApply={() => apply.mutate()}
+                      canApply={workerUp && !applying}
+                      error={apply.error ? (apply.error as Error).message : null}
                     />
                   </div>
                 </Panel>
@@ -356,7 +493,7 @@ export function Overview() {
                   </div>
                 </Panel>
 
-                <div className="xl:col-span-5">
+                <div className="xl:col-span-5 flex">
                   <BatchReplay />
                 </div>
 

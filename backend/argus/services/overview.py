@@ -41,13 +41,27 @@ def operations(session: Session, budget: float | None = None) -> dict[str, Any]:
         text("""
         SELECT count(*) AS runs,
                coalesce(sum(scored_count), 0) AS scored,
-               coalesce(sum(queued_count), 0) AS queued,
                max(timestep) AS latest_timestep,
                count(*) FILTER (WHERE status = 'running') AS running,
-               count(*) FILTER (WHERE status = 'failed') AS failed
+               count(*) FILTER (WHERE status = 'failed') AS failed,
+               -- The budget the stored queue was actually built at. One value
+               -- if every batch was replayed at the same budget, NULL if they
+               -- disagree -- which is a real state (a part-applied change) and
+               -- is reported rather than averaged away.
+               CASE WHEN count(DISTINCT alert_budget) = 1
+                    THEN min(alert_budget) END AS applied_budget
         FROM batch_runs
         """)
     ).one()
+
+    # The alert count is counted from `case_reports`, not summed from
+    # `batch_runs.queued_count`, because `case_reports` is what the queue
+    # screen lists. Summing the run rows was a second, subtly different
+    # definition of the same number: a case retained across a re-replay
+    # (reviewed, or already investigated) is in the queue but not in that
+    # run's selection, and the two screens then disagreed by exactly the
+    # cases an analyst had worked on.
+    queued = session.execute(text("SELECT count(*) FROM case_reports")).scalar_one()
 
     cases = session.execute(
         text("""
@@ -111,7 +125,16 @@ def operations(session: Session, budget: float | None = None) -> dict[str, Any]:
     )
 
     return {
+        # What this response was *counted at* -- the previewed budget.
         "alert_budget": budget,
+        # What the stored queue was actually *built at*. These two being equal
+        # is the whole definition of the screen being canonical rather than
+        # previewing something that has not been applied; nothing about the
+        # number 0.01 comes into it. NULL means either nothing has been
+        # replayed or the batches disagree.
+        "applied_alert_budget": (
+            float(batches.applied_budget) if batches.applied_budget is not None else None
+        ),
         "default_alert_budget": settings.alert_budget,
         "llm_provider": settings.llm_provider,
         "replay_range": [settings.replay_min_timestep, settings.replay_max_timestep],
@@ -121,13 +144,13 @@ def operations(session: Session, budget: float | None = None) -> dict[str, Any]:
                 int(batches.latest_timestep) if batches.latest_timestep is not None else None
             ),
             "scored": int(batches.scored),
-            "queued": int(batches.queued),
+            "queued": int(queued),
             "running": int(batches.running),
             "failed": int(batches.failed),
             # The realised alert rate across everything replayed. Shown next to
             # the configured budget so drift is visible rather than assumed.
             "realised_alert_rate": (
-                round(int(batches.queued) / int(batches.scored), 5) if batches.scored else None
+                round(int(queued) / int(batches.scored), 5) if batches.scored else None
             ),
         },
         "cases": {

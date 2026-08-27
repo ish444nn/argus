@@ -123,6 +123,15 @@ class ReplayDispatched(BaseModel):
     status_url: str
 
 
+class BudgetApplied(BaseModel):
+    """One replay dispatched per stored batch, to rebuild the queue."""
+
+    alert_budget: float
+    timesteps: list[int]
+    task_ids: list[str]
+    status_url: str
+
+
 class BatchRunOut(BaseModel):
     batch_run_id: int
     timestep: int

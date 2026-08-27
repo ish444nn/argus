@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { getQueue, type QueueEntry } from "../api/client";
+import { getOverview, getQueue, type QueueEntry } from "../api/client";
+import { budgetLabel } from "../budget";
 import { Badge, Note, RiskLadder, Skeleton } from "../components/ui";
 
 /**
@@ -113,6 +114,15 @@ export function Queue() {
     setParams(merged, { replace: true });
   };
 
+  // The budget the stored queue was actually built at, so this screen states
+  // the same fact the overview does instead of leaving the reader to assume
+  // which selection they are looking at.
+  const applied = useQuery({
+    queryKey: ["applied-budget"],
+    queryFn: () => getOverview(),
+    select: (data) => data.applied_alert_budget,
+  });
+
   const queue = useQuery({
     queryKey: ["queue", sortBy, descending, page],
     queryFn: () =>
@@ -150,8 +160,15 @@ export function Queue() {
               ) : (
                 <>
                   <span className="num">{total.toLocaleString()}</span> case
-                  {total === 1 ? "" : "s"} · selected by risk score, ranked
-                  within each batch
+                  {total === 1 ? "" : "s"}
+                  {applied.data != null && (
+                    <>
+                      {" "}
+                      · the top{" "}
+                      <span className="num">{budgetLabel(applied.data)}</span> of each
+                      batch by risk score
+                    </>
+                  )}
                 </>
               )}
             </p>
