@@ -245,17 +245,11 @@ function BudgetControl({
             <span className="num text-[var(--text-2)]">{budgetLabel(budget)}</span> of
             every batch.
           </p>
-        ) : (
+        ) : canApply ? (
           <>
             <button
               className="btn btn-primary w-full !justify-center"
               onClick={onApply}
-              disabled={!canApply}
-              title={
-                canApply
-                  ? undefined
-                  : "Rebuilding the queue runs the scoring job, which needs the local Celery worker."
-              }
             >
               Rebuild the queue at {budgetLabel(budget)}
             </button>
@@ -265,6 +259,21 @@ function BudgetControl({
                 : `The queue is still the top ${budgetLabel(applied)}.`}
             </p>
           </>
+        ) : (
+          /* No worker. Rebuilding runs the scoring job, so it genuinely
+             cannot happen here -- and a disabled button with a tooltip is a
+             worse answer than saying so. The preview above is still real:
+             it re-cuts the stored scores, which are present. */
+          <p className="text-[12px] text-[var(--text-3)]">
+            Previewing only.{" "}
+            {applied !== null && (
+              <>
+                The queue holds the top{" "}
+                <span className="num text-[var(--text-2)]">{budgetLabel(applied)}</span>.{" "}
+              </>
+            )}
+            Rebuilding it needs the scoring worker, which this deployment does not run.
+          </p>
         )}
         {error && (
           <p className="mt-2 text-[11px] text-[var(--bad)]" role="alert">

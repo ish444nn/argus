@@ -10,8 +10,8 @@ the exact sequence — every command has been run against a clean database.
 | Frontend | Render Static Site | Free |
 | API | Render Web Service (Docker, default stage = `api`) | Free |
 | Database | Supabase Postgres + pgvector | Free, 500 MB |
-| **Celery worker** | **Local only** | Render background workers are not free |
-| **Redis** | **Local only** | Render Key Value is not free |
+| **Celery worker** | **Local only** | Render background workers start at $7/mo |
+| **Redis** | **Local only** | Render Key Value starts at $10/mo |
 
 That split is deliberate. Batch replay and investigation are the expensive,
 long-running parts and they run on your machine; their **results** are exported
@@ -240,6 +240,29 @@ DATABASE_URL="$SUPABASE_URL" LLM_PROVIDER=gemini GEMINI_API_KEY=... \
 ```
 
 The worker is on your machine; only the results land in the hosted database.
+
+### Seeding the hosted database
+
+The hosted API serves rows; without them the Overview says "nothing replayed
+yet" and the Queue is empty. Export the local canonical state and load it once:
+
+```bash
+# 1. From backend/, with the local stack up and the queue at the budget you
+#    want the demo to open on (1% is canonical).
+uv run python -m argus.ml.cli export-demo --out ../demo-snapshot.sql
+
+# 2. Load it into the hosted database. Use the same URI you gave Render.
+psql "$SUPABASE_DATABASE_URL" -f demo-snapshot.sql
+```
+
+`transaction_embeddings` is excluded: it is 33 MB of the 55, and the only code
+that reads it is the worker, which is not hosted. Pass `--with-embeddings` if
+you ever host one. The result is ~21 MB of SQL and about 90 MB once loaded,
+inside Supabase's 500 MB.
+
+Load it into a **migrated but empty** database. The file runs in one
+transaction with foreign keys enforced, so a partial load rolls back rather
+than leaving half a demo behind.
 
 ## Troubleshooting
 

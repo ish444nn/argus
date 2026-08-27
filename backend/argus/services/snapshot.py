@@ -19,6 +19,13 @@ training data; they exist locally as historical graph context and the hosted
 API has no use for them, apart from the transactions the similarity evidence
 cites, which must come along or the citations dangle.
 
+`transaction_embeddings` is excluded by default for the same reason as
+`features`: it is 60% of the file (33 MB of the 55 MB) and the only readers
+are `agent.tools.similarity` and `services.replay`, both of which run in the
+worker. A deployment with no worker is loading vectors nothing will ever
+query, into a 500 MB budget. `--with-embeddings` puts them back for a
+deployment that does host one.
+
 The output is plain SQL that `psql` can apply. Nothing here is clever: the
 point is that a person can read the file before loading it into a database
 they cannot easily undo.
@@ -86,7 +93,7 @@ def _insert(table: str, rows: list[dict]) -> Iterator[str]:
     yield ""
 
 
-def export(session: Session, min_timestep: int = 35) -> str:
+def export(session: Session, min_timestep: int = 35, *, with_embeddings: bool = False) -> str:
     """Build the seed SQL for the hosted database."""
     params = {"ts": min_timestep}
     lines: list[str] = [
@@ -156,13 +163,18 @@ def export(session: Session, min_timestep: int = 35) -> str:
             )
         ),
         # Embeddings for everything kept: the queued cases, and the training
-        # transactions their similarity evidence cites.
-        "transaction_embeddings": list(
-            _rows(
-                session,
-                "SELECT * FROM transaction_embeddings WHERE tx_id = ANY(:ids) ORDER BY tx_id",
-                {"ids": sorted(kept)},
+        # transactions their similarity evidence cites. Only a deployment that
+        # hosts a worker has anything to do with them.
+        "transaction_embeddings": (
+            list(
+                _rows(
+                    session,
+                    "SELECT * FROM transaction_embeddings WHERE tx_id = ANY(:ids) ORDER BY tx_id",
+                    {"ids": sorted(kept)},
+                )
             )
+            if with_embeddings
+            else []
         ),
         "typology_references": list(
             _rows(session, "SELECT * FROM typology_references ORDER BY id", {})

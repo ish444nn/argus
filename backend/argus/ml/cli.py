@@ -160,7 +160,7 @@ def cmd_export_demo(args: argparse.Namespace) -> None:
         if args.summary:
             print(json.dumps(snapshot.summarise(session, args.min_timestep), indent=2))
             return
-        sql = snapshot.export(session, args.min_timestep)
+        sql = snapshot.export(session, args.min_timestep, with_embeddings=args.with_embeddings)
 
     args.out.write_text(sql, encoding="utf-8")
     size_mb = args.out.stat().st_size / 1024 / 1024
@@ -191,6 +191,14 @@ def main(argv: list[str] | None = None) -> None:
     export_parser.add_argument("--min-timestep", type=int, default=35)
     export_parser.add_argument(
         "--summary", action="store_true", help="report row counts without writing"
+    )
+    export_parser.add_argument(
+        "--with-embeddings",
+        action="store_true",
+        help=(
+            "include transaction_embeddings (33 MB). Only useful for a "
+            "deployment that hosts a Celery worker; the API never reads them."
+        ),
     )
     export_parser.set_defaults(func=cmd_export_demo)
 
