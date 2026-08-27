@@ -521,6 +521,34 @@ MEASURED:
   of the chart. `max(2px, ...)` keeps it visible; the numerals carry the
   quantity.
 
+## Deployment findings (verified against real runs)
+
+- **`astral-sh/setup-uv` publishes moving major tags only up to v7.** There is
+  no `v8`, `v9` or `v10` ref -- everything above is full semver (`v9.0.0`,
+  `v10.0.1`). `@v10` failed the whole job before a step ran, and `@v9` would
+  have failed identically. Pinned to the commit behind v9.0.0
+  (`c771a70e...`), which is node24 and defaults `prune-cache: false`. Check
+  `git/refs/tags` before writing an action ref.
+- **CI is green and verified**: runs 7 (`cbb2c54`) and 8 (`80cd173`), Backend
+  and Frontend both SUCCESS, `Post Install uv` PASS. Never claim this from
+  local reasoning -- the previous three phases each "fixed" CI without a run.
+- **The committed `demo-snapshot.sql` was a 20-line stub** with no INSERT
+  statements, which is why the hosted deployment was healthy and empty.
+  Regenerating it is part of deploying, not a one-off.
+- **Embeddings are excluded from the snapshot by default.** 33 MB of 55, and
+  only `agent.tools.similarity` and `services.replay` read them -- both
+  worker-side. Without them the file is 21 MB and the loaded database 26 MB,
+  against Supabase's 500 MB. `--with-embeddings` restores them.
+- **Render has no free path to a running replay**: Key Value from $10/mo,
+  background workers from $7/mo. The hosted deployment is therefore read-only
+  by construction, and the budget card says so rather than disabling a button
+  behind a tooltip. The preview still re-cuts real stored scores.
+- **A genuinely functional hosted demo needs one VM, not more services.**
+  `docker-compose.yml` already runs the whole stack; a $6/mo droplet covered by
+  the GitHub Student Pack's $200 DigitalOcean credit runs it unchanged,
+  including replay. That is the upgrade path if the read-only demo stops being
+  enough -- not a Render worker plus a Render Key Value store.
+
 ## Phase end protocol
 
 Report: What I changed / Why / Tests-checks / Important decisions / Suggested commit.
