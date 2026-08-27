@@ -1,8 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { getOverview, type Overview as OverviewData } from "../api/client";
-import { BUDGETS, budgetLabel, DEFAULT_BUDGET } from "../budget";
+import { BUDGETS, budgetLabel, DEFAULT_BUDGET, useBudget } from "../budget";
 import { BatchReplay } from "../components/BatchReplay";
 import { evidenceMeta } from "../evidence";
 import { Distribution, Note, Panel, Skeleton, Stat } from "../components/ui";
@@ -82,14 +81,30 @@ function RiskBands({ data }: { data: OverviewData }) {
   );
 }
 
+/**
+ * Where a tick belongs under a discrete range input.
+ *
+ * The thumb's centre travels from half a thumb in to half a thumb from the far
+ * end, never across the full width, so laying seven labels out with
+ * `justify-between` puts every one of them slightly off its own value. This is
+ * that travel, expressed exactly; `--range-thumb` is the same token the thumb
+ * itself is sized from.
+ */
+function tickLeft(index: number, count: number): string {
+  const fraction = count > 1 ? index / (count - 1) : 0;
+  return `calc(var(--range-thumb) / 2 + (100% - var(--range-thumb)) * ${fraction})`;
+}
+
 function BudgetControl({
   budget,
   onChange,
   data,
+  pending,
 }: {
   budget: number;
   onChange: (value: number) => void;
   data: OverviewData;
+  pending: boolean;
 }) {
   const preview = data.budget_preview;
   const index = Math.max(0, BUDGETS.indexOf(budget));
@@ -97,15 +112,27 @@ function BudgetControl({
 
   return (
     <div>
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-baseline justify-between gap-3">
         <p className="num text-[1.5rem] leading-none text-[var(--text)]">
           {budgetLabel(budget)}
         </p>
-        <p className="text-[11px] text-[var(--text-3)]">
-          <span className="num text-[var(--text-2)]">
-            {preview.selected.toLocaleString()}
-          </span>{" "}
-          of {preview.scored.toLocaleString()} selected
+        <p className="text-right text-[11px] text-[var(--text-3)]" role="status">
+          {pending ? (
+            <span className="flex items-center justify-end gap-1.5 text-[var(--text-2)]">
+              <span
+                className="pulse-dot size-1.5 rounded-full bg-[var(--measured)]"
+                aria-hidden
+              />
+              Recounting
+            </span>
+          ) : (
+            <>
+              <span className="num text-[var(--text-2)]">
+                {preview.selected.toLocaleString()}
+              </span>{" "}
+              of {preview.scored.toLocaleString()} selected
+            </>
+          )}
         </p>
       </div>
 
@@ -122,13 +149,14 @@ function BudgetControl({
         title="How much of each scored batch enters the queue. Re-selects from the existing scores; it does not retrain the model or change a risk score."
       />
 
-      {/* Ticks double as the scale and the affordance: seven stops, and the
-          canonical one named under its own mark rather than floated near it. */}
-      <div className="mt-1.5 flex items-start justify-between">
+      {/* Ticks double as the scale and the affordance: seven stops, each mark
+          sitting exactly where the thumb stops on it. */}
+      <div className="relative mt-1.5 h-9">
         {BUDGETS.map((option, i) => (
           <button
             key={option}
-            className="group flex flex-col items-center gap-1 py-0.5"
+            className="group absolute top-0 flex -translate-x-1/2 flex-col items-center gap-1 py-0.5"
+            style={{ left: tickLeft(i, BUDGETS.length) }}
             onClick={() => onChange(option)}
             tabIndex={-1}
             aria-hidden
@@ -158,36 +186,23 @@ function BudgetControl({
           </button>
         ))}
       </div>
-
-      <dl className="mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t border-[var(--line)] pt-2.5 text-[12px]">
-        <dt className="text-[var(--text-3)]">Scoring &ge; 0.99</dt>
-        <dd className="num text-right text-[var(--text-2)]">
-          {preview.high_scoring.toLocaleString()}
-        </dd>
-        <dt className="text-[var(--text-3)]" title="They score as high as the queue's, but the budget has no room for them.">
-          &hellip;left out of the queue
-        </dt>
-        <dd
-          className="num text-right"
-          style={{
-            color: preview.high_scoring_unselected ? "var(--risk-3)" : "var(--text-2)",
-          }}
-        >
-          {preview.high_scoring_unselected.toLocaleString()}
-        </dd>
-      </dl>
     </div>
   );
 }
 
 export function Overview() {
-  const [budget, setBudget] = useState(DEFAULT_BUDGET);
+  const { budget, setBudget } = useBudget();
   const { data, isPending, error, refetch, isFetching } = useQuery({
     queryKey: ["overview", budget],
     queryFn: () => getOverview(budget),
     placeholderData: (previous) => previous,
     refetchInterval: 20_000,
   });
+
+  // The previous budget's figures are still on screen until the API answers
+  // for the new one. Comparing what was asked for with what the response was
+  // counted at is the real state of the request — no timer involved.
+  const recounting = data !== undefined && data.alert_budget !== budget;
 
   return (
     <div className="mx-auto max-w-[1500px] px-6 py-6">
@@ -276,10 +291,15 @@ export function Overview() {
               <div className="mt-6 grid grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-12">
                 <Panel
                   title="Risk distribution"
-                  meta={`selected at ${pct(budget)}`}
+                  // The budget is a top-k within each batch, not across the
+                  // pool, so saying which makes the band counts add up.
+                  meta={`top ${budgetLabel(budget)} of each batch`}
                   className="xl:col-span-6"
                 >
-                  <div className="panel-body">
+                  <div
+                    className="panel-body transition-opacity duration-150"
+                    style={{ opacity: recounting ? 0.5 : 1 }}
+                  >
                     <RiskBands data={data} />
                   </div>
                 </Panel>
@@ -290,7 +310,12 @@ export function Overview() {
                   className="xl:col-span-3"
                 >
                   <div className="panel-body">
-                    <BudgetControl budget={budget} onChange={setBudget} data={data} />
+                    <BudgetControl
+                      budget={budget}
+                      onChange={setBudget}
+                      data={data}
+                      pending={recounting}
+                    />
                   </div>
                 </Panel>
 
@@ -377,7 +402,7 @@ export function Overview() {
                       ]}
                       emptyLabel="No decisions recorded yet"
                     />
-                    <Link to="/queue?undecided=1" className="btn mt-3 w-full !justify-center">
+                    <Link to="/queue" className="btn mt-3 w-full !justify-center">
                       Review the queue
                     </Link>
                   </div>

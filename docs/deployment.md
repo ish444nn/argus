@@ -142,7 +142,13 @@ chunks, **0 dangling citations**, total size **90 MB**.
    | Service | Variable | Value |
    |---|---|---|
    | `argus-api` | `DATABASE_URL` | your `postgresql+psycopg://…` URI |
-   | `argus-api` | `REDIS_URL` | `redis://localhost:6379/0` (placeholder — no hosted worker) |
+
+   `REDIS_URL` is **not** one of them: `render.yaml` sets it to an empty
+   string, which is how this deployment says "no job broker". Do not put a
+   placeholder there. `redis://localhost:6379/0` inside a Render container
+   points at the container itself, and `APP_ENV=production` refuses to start on
+   it — the API would exit at boot with
+   `APP_ENV=production but: REDIS_URL still points at localhost`.
 
 4. **Apply**. The first build takes 5–10 minutes.
 
@@ -167,9 +173,11 @@ with CORS errors in the browser console rather than an obvious misconfiguration.
 curl https://argus-api-x7k2.onrender.com/health
 ```
 
-Expect `postgres` and `pgvector` `ok`. **`redis` and `worker` will report
-`error`, and overall status will be `degraded` — that is correct**: there is no
-hosted worker. The read-only product is fully functional.
+Expect overall status `ok`, with `postgres` and `pgvector` `ok` and `redis`
+and `worker` reporting **`disabled`** — not an error. There is no hosted
+broker or worker by design, so their absence is a configuration this
+deployment declares rather than a fault, and the read-only product is fully
+functional without them.
 
 Then open the frontend and walk: Overview → Queue → a case → evidence →
 investigation → record a decision → reload and confirm it persisted.
@@ -233,7 +241,8 @@ The worker is on your machine; only the results land in the hosted database.
 | UI loads, no data, CORS errors in console | `CORS_ORIGINS` and `VITE_API_BASE_URL` disagree — Step 5 |
 | UI calls `localhost:8000` | `VITE_API_BASE_URL` set but frontend not rebuilt |
 | API exits at boot with "APP_ENV=production but…" | A development default reached production. The message names the variable. |
-| `/health` shows `redis`/`worker` error | Expected — no hosted worker |
+| `/health` shows `redis`/`worker` `disabled` | Expected — no hosted worker |
+| API exits with `REDIS_URL still points at localhost` | A placeholder was set in the dashboard. Clear it: empty means "no broker". |
 | First request takes ~50 s | Render free tier cold start |
 | `relation "case_reports" does not exist` | Step 2 not run against this database |
 | Snapshot load fails on a foreign key | Loading into a non-empty database — truncate first |

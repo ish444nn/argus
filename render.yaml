@@ -43,14 +43,19 @@ services:
       # a blueprint is committed and a database password is not.
       - key: DATABASE_URL
         sync: false
-      # The API dispatches jobs but never runs them. Without a hosted worker
-      # this points at nothing and dispatch fails cleanly, which is the honest
-      # behaviour -- the UI disables the trigger and says why.
+      # Empty on purpose, and it must stay empty rather than be filled in with
+      # a placeholder. There is no hosted broker and no hosted worker, so an
+      # empty REDIS_URL is the accurate description of this deployment: the
+      # API refuses to dispatch and says why, instead of timing out against a
+      # `localhost` that does not exist inside the container. `APP_ENV=production`
+      # rejects a localhost value for exactly that reason.
       - key: REDIS_URL
-        sync: false
+        value: ""
       # The deployed frontend's origin. Anything else is refused by CORS.
+      # Render appends a suffix to a service name that is already taken, so
+      # this must be the host the service actually got, not the name asked for.
       - key: CORS_ORIGINS
-        value: https://argus-web.onrender.com
+        value: https://argus-web-oamt.onrender.com
       # The API never calls a model; it serves reports the worker already
       # wrote. `stub` here means "no credentials on the web service", which is
       # one less place a key can leak.
@@ -72,9 +77,10 @@ services:
     pullRequestPreviewsEnabled: false
     envVars:
       # Absolute, because in production the frontend and API are different
-      # origins and there is no dev-server proxy to hide that.
+      # origins and there is no dev-server proxy to hide that. As above, this
+      # is the host the API service actually got.
       - key: VITE_API_BASE_URL
-        value: https://argus-api.onrender.com
+        value: https://argus-api-oamt.onrender.com
     routes:
       # Client-side routing: /queue and /cases/:id are React Router paths, not
       # files on disk, so everything unmatched falls through to index.html.

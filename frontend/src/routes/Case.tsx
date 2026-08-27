@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { getCase } from "../api/client";
+import { getCase, type CaseDetail } from "../api/client";
 import { EgoGraph } from "../components/EgoGraph";
 import { EvidenceList } from "../components/Evidence";
 import { Assessment, TypologySources } from "../components/Investigation";
@@ -19,6 +20,28 @@ import { Note, Panel, ProvLabel, Skeleton } from "../components/ui";
  * decision, sit to the right. That ordering is an argument — the evidence
  * comes first and the interpretation is answerable to it.
  */
+
+/** A dispatched investigation, and the case row as it stood when it went out. */
+type Dispatched = { caseId: number; updatedAt: string };
+
+/**
+ * Is an investigation still in flight?
+ *
+ * The POST returns 202 as soon as the task is queued, which is before the
+ * worker has picked it up and set the status -- so the status alone cannot
+ * answer this, and a panel that trusted it flicked back to its button within a
+ * frame and looked like it had done nothing. A run is finished only once the
+ * case row has changed *and* settled somewhere other than `investigating`.
+ */
+function stillRunning(
+  dispatched: Dispatched | null,
+  caseId: number,
+  detail: CaseDetail | undefined,
+): boolean {
+  if (!dispatched || dispatched.caseId !== caseId) return false;
+  if (!detail) return true;
+  return detail.updated_at === dispatched.updatedAt || detail.status === "investigating";
+}
 
 function Identity({
   label,
@@ -41,13 +64,21 @@ export function Case() {
   const { caseId } = useParams();
   const id = Number(caseId);
 
+  const [dispatched, setDispatched] = useState<Dispatched | null>(null);
+
   const { data, isPending, error } = useQuery({
     queryKey: ["case", id],
     queryFn: () => getCase(id),
-    // Poll only while a background investigation is in flight.
+    // Poll while an investigation is in flight -- either one this page
+    // dispatched, or one already running when the page opened.
     refetchInterval: (query) =>
-      query.state.data?.status === "investigating" ? 2000 : false,
+      query.state.data?.status === "investigating" ||
+      stillRunning(dispatched, id, query.state.data)
+        ? 1500
+        : false,
   });
+
+  const running = stillRunning(dispatched, id, data);
 
   if (isPending) {
     return (
@@ -138,7 +169,14 @@ export function Case() {
 
         {/* The action column stays in view while the evidence scrolls. */}
         <div className="space-y-4 xl:sticky xl:top-6">
-          <Assessment detail={data} />
+          <Assessment
+            detail={data}
+            running={running}
+            onDispatch={() =>
+              setDispatched({ caseId: id, updatedAt: data.updated_at })
+            }
+            onDispatchFailed={() => setDispatched(null)}
+          />
           <Review caseId={data.case_id} />
         </div>
       </div>

@@ -97,6 +97,14 @@
 
   --r: 2px;
   --rail: 3px;
+
+  /* Range thumb width. A token because the tick marks under a discrete slider
+     have to sit exactly where the thumb can stop: the thumb's centre travels
+     from half a thumb in to half a thumb from the end, so a tick at fraction
+     f belongs at `calc(var(--range-thumb) / 2 + (100% - var(--range-thumb)) * f)`.
+     Two places, one number — otherwise the labels drift off their values the
+     next time the thumb is resized. */
+  --range-thumb: 8px;
 }
 
 * {
@@ -370,7 +378,7 @@ body {
 .range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 8px;
+  width: var(--range-thumb);
   height: 16px;
   margin-top: -7px;
   background: var(--measured);
@@ -380,7 +388,7 @@ body {
 }
 
 .range::-moz-range-thumb {
-  width: 8px;
+  width: var(--range-thumb);
   height: 16px;
   background: var(--measured);
   border: none;

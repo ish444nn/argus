@@ -57,7 +57,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        # v10 rather than v5 for two concrete reasons: it runs on Node 24, so
+        # GitHub stops warning that the action's runtime is deprecated, and it
+        # no longer prunes the uv cache in its post-job step by default.
+        uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
@@ -114,14 +117,22 @@ jobs:
         #
         # Background processes survive to later steps in the same job, so the
         # worker is still listening when pytest runs.
+        #
+        # Launched from the venv directly rather than through `uv run`. A
+        # long-lived `uv run` keeps its own uv process alive for as long as the
+        # child, and that process holds a lock on the uv cache -- which then
+        # blocks anything the job does with the cache afterwards. That is what
+        # broke the previous run: the post-job cache step could not take the
+        # lock and exited 2, failing a job whose tests had all passed.
         run: |
-          uv run celery -A argus.jobs.celery_app:celery_app worker \
+          .venv/bin/celery -A argus.jobs.celery_app:celery_app worker \
             --loglevel=info --concurrency=1 > celery.log 2>&1 &
+          echo $! > celery.pid
           # `inspect ping` exits non-zero until a worker answers on the broker,
           # which is the same question /health asks. Poll it rather than
           # sleeping a fixed guess.
           for _ in $(seq 1 30); do
-            if uv run celery -A argus.jobs.celery_app:celery_app inspect ping -t 2; then
+            if .venv/bin/celery -A argus.jobs.celery_app:celery_app inspect ping -t 2; then
               exit 0
             fi
             sleep 2
@@ -143,6 +154,16 @@ jobs:
         if: failure()
         working-directory: backend
         run: cat celery.log || true
+
+      - name: Stop the Celery worker
+        # Always, so no background process outlives the steps and interferes
+        # with the actions' own post-job cleanup.
+        if: always()
+        working-directory: backend
+        run: |
+          if [ -f celery.pid ]; then
+            kill "$(cat celery.pid)" 2>/dev/null || true
+          fi
 
   frontend:
     name: Frontend

@@ -406,6 +406,64 @@ MEASURED:
 - Range inputs are themed, not rebuilt: `.range` in `index.css` paints a 2px
   rail and a square thumb, keeping arrow keys and screen-reader support.
 
+## Phase 6.3 findings
+
+- **The CI failure was never the worker itself.** `Post Install uv` exited 2
+  because `setup-uv@v5` prunes the cache in its post-job step, and the
+  background worker had been started with `uv run` -- which keeps a uv process
+  alive for the child's whole lifetime, holding the uv cache lock. `uv cache
+  prune --ci` could not take the lock and failed a job whose tests had all
+  passed. Two fixes: launch the worker from `.venv/bin/celery` (no uv process
+  outlives the step) and move to `setup-uv@v10`, which runs on Node 24 and no
+  longer prunes by default. Never start a long-lived process with `uv run` in
+  CI.
+- **An empty `REDIS_URL` now means "this deployment has no job broker".**
+  `docs/deployment.md` used to tell you to set the placeholder
+  `redis://localhost:6379/0`, which `APP_ENV=production` correctly refuses --
+  the documented deployment could not boot. `Settings.has_broker` is the one
+  test; `/health` reports redis and worker as **`disabled`** (not `error`, so
+  production is not permanently "degraded"), and `deps.dispatch` returns 503
+  instantly instead of trying to connect. A localhost value in production is
+  still refused.
+- **Render appends a suffix to a taken service name.** The blueprint's
+  `CORS_ORIGINS` and `VITE_API_BASE_URL` must be the hosts the services
+  actually got (`argus-api-oamt`, `argus-web-oamt`), not the names asked for.
+- **The alert-budget arithmetic was right; the label was missing.** The budget
+  is top-k **per batch**, so a batch with 262 transactions above 0.99 and 166
+  slots leaves 96 unselected while another batch with spare slots reaches down
+  into 0.95-0.99. Verified against the database: at 3%, 458 selected =
+  166+192+100, of which 440 are >=0.99 and 18 are below. The chart now says
+  "top 3% of each batch", which is what makes the composition add up.
+- **Confidence sitting at 0.250 is the honest answer, not a bug.** Every
+  deterministic tool runs on every case during replay, after the whole queue
+  exists, and before confidence is computed. Measured on the current queue:
+  153 of 154 cases have degree <= 2, no case has a chain longer than 2, and
+  **zero** cases have a flagged or historically-illicit neighbour available --
+  Elliptic's edges are all intra-time-step, so the historical channel is
+  structurally empty. Only `structural_similarity` (weight 0.25) can fire, and
+  its noisy-OR saturates. 21 cases score 0.000 because their five nearest
+  reference-pool neighbours were all licit. Do not lower a threshold to move
+  this number.
+- **A 202 is not a running state.** `POST /investigate` returns as soon as the
+  task is queued, before the worker sets `investigating`, so the case page's
+  invalidate-and-refetch immediately overwrote the optimistic status and the
+  button came back within a frame. The page now records `updated_at` at
+  dispatch and treats the run as live until that value changes *and* the status
+  is no longer `investigating`. Verified against a real Gemini call that took
+  103 seconds.
+- **`now()` is transaction start time, not commit time.** The investigation's
+  final write stamps `updated_at` with when its transaction opened, ~100s
+  before it commits. The watermark comparison still works because time moves
+  forward, but do not use `updated_at` as a duration.
+- **A discrete range input's ticks need the thumb's travel, not the width.**
+  The thumb centre runs from half a thumb in to half a thumb from the end, so
+  `justify-between` labels sit off their own values. `--range-thumb` is now a
+  token shared by the thumb and the tick maths; measured drift is <0.01px.
+- **The alert budget is session state.** It lives in a context above the
+  router, persisted to `localStorage`, so it survives navigating to a case and
+  back. It still writes nothing server-side -- it re-cuts stored scores with a
+  window function, exactly as before.
+
 ## Phase end protocol
 
 Report: What I changed / Why / Tests-checks / Important decisions / Suggested commit.

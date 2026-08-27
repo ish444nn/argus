@@ -116,6 +116,9 @@ export type CaseDetail = {
   batch_run_id: number | null;
   alert_budget: number | null;
   created_at: string;
+  // Advances on every write the investigation makes, which is how the case
+  // page knows a run it dispatched has actually landed.
+  updated_at: string;
   neighbourhood: Neighbourhood;
   evidence: EvidenceItem[];
 };

@@ -33,7 +33,18 @@ const ACTION_TONE: Record<string, "bad" | "warn" | "neutral"> = {
   dismiss: "neutral",
 };
 
-export function Assessment({ detail }: { detail: CaseDetail }) {
+export function Assessment({
+  detail,
+  running: inFlight,
+  onDispatch,
+  onDispatchFailed,
+}: {
+  detail: CaseDetail;
+  /** True from dispatch until the report has actually landed. */
+  running: boolean;
+  onDispatch: () => void;
+  onDispatchFailed: () => void;
+}) {
   const queryClient = useQueryClient();
   const meta = detail.investigation_meta ?? {};
   const written = Boolean(detail.narrative);
@@ -41,23 +52,19 @@ export function Assessment({ detail }: { detail: CaseDetail }) {
 
   const run = useMutation({
     mutationFn: () => startInvestigation(detail.case_id),
-    onSuccess: () => {
-      // The task is queued, not finished. Mark the case as investigating
-      // straight away so the panel switches to the running state on this
-      // render rather than after the next poll -- otherwise the button sits
-      // there looking unclicked until something else refetches, which reads
-      // as a broken button.
-      queryClient.setQueryData(["case", detail.case_id], (previous?: CaseDetail) =>
-        previous ? { ...previous, status: "investigating" } : previous,
-      );
-      queryClient.invalidateQueries({ queryKey: ["case", detail.case_id] });
-    },
+    // Record the case's state *before* dispatching; the route watches for it
+    // to change, which is the only reliable signal that the run has finished.
+    onMutate: onDispatch,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["case", detail.case_id] }),
+    // Nothing was queued, so nothing is running.
+    onError: onDispatchFailed,
   });
 
-  // `isPending` covers the moment between click and the 202 coming back;
-  // `status` covers everything after. Together they mean the running state
-  // shows from the first click until the report lands.
-  const running = detail.status === "investigating" || run.isPending;
+  // Three phases of one request: the POST itself, the wait for a worker to
+  // pick the task up, and the run. The panel holds the same state throughout,
+  // and the action does not come back until the report has landed.
+  const running = run.isPending || inFlight || detail.status === "investigating";
 
   if (detail.status === "failed" && !written) {
     return (
@@ -66,8 +73,8 @@ export function Assessment({ detail }: { detail: CaseDetail }) {
           <Note kind="error" title="The investigation failed">
             {detail.error ?? "No reason was recorded."}
             <div className="mt-3">
-              <button className="btn" onClick={() => run.mutate()} disabled={run.isPending}>
-                Try again
+              <button className="btn" onClick={() => run.mutate()} disabled={running}>
+                {running ? "Investigating…" : "Try again"}
               </button>
             </div>
           </Note>
@@ -98,9 +105,9 @@ export function Assessment({ detail }: { detail: CaseDetail }) {
                 <button
                   className="btn btn-primary"
                   onClick={() => run.mutate()}
-                  disabled={run.isPending}
+                  disabled={running}
                 >
-                  {run.isPending ? "Starting…" : "Run investigation"}
+                  Run investigation
                 </button>
               </div>
               {run.error && (
@@ -123,14 +130,31 @@ export function Assessment({ detail }: { detail: CaseDetail }) {
           <button
             className="btn"
             onClick={() => run.mutate()}
-            disabled={run.isPending || running}
+            disabled={running}
+            aria-busy={running}
             title="Re-run the investigation"
           >
-            {run.isPending || running ? "Running" : "Re-run"}
+            {running ? (
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="pulse-dot size-1.5 rounded-full bg-[var(--model)]"
+                  aria-hidden
+                />
+                Re-running
+              </span>
+            ) : (
+              "Re-run"
+            )}
           </button>
         }
       >
         <div className="panel-body space-y-4">
+          {run.error && (
+            <p className="text-[var(--bad)]" role="alert">
+              {(run.error as Error).message}
+            </p>
+          )}
+
           {/* What the model wrote. */}
           <div className={`prov ${fromModel ? "prov-model" : "prov-measured"}`}>
             <ProvLabel
