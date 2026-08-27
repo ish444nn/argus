@@ -2,7 +2,7 @@
 
 Every fact a case report rests on is an `EvidenceDraft` before it is a row.
 The tools in `argus.agent.tools` return drafts; `persist` turns them into
-`evidence_items`. Phase 4's investigation graph produces drafts from the same
+`evidence_items`. The investigation graph produces drafts from the same
 tools and adds retrieval on top, so there is one evidence pipeline rather than
 two.
 
@@ -13,7 +13,7 @@ Two fields carry the weight:
 `weight`    how much this *kind* of signal contributes to the deterministic
             confidence score. Fixed per kind, versioned, never inferred.
 
-Confidence is computed from these in Phase 4. Nothing here asks a language
+Confidence is computed from these. Nothing here asks a language
 model for anything.
 """
 

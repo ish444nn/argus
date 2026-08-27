@@ -65,7 +65,7 @@ def test_confidence_is_nullable_because_it_is_computed_after_investigation():
     assert Base.metadata.tables["case_reports"].c.confidence.nullable
 
 
-def test_transaction_features_are_nullable_for_the_hosted_demo_snapshot():
+def test_transaction_features_are_nullable_because_only_the_worker_reads_them():
     assert Base.metadata.tables["transactions"].c.features.nullable
 
 

@@ -1,6 +1,6 @@
 """Overview aggregates, the neighbourhood graph and analyst decisions.
 
-These back the Phase 5 screens, so the assertions are mostly "does this number
+These back the operations screens, so the assertions are mostly "does this number
 actually come from the database" -- the one failure mode that matters for an
 operations view is a figure that looks plausible and is not real.
 """

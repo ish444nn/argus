@@ -95,9 +95,6 @@ services:
   # including the UI. It bind-mounts the source and hot-reloads exactly like
   # running `npm run dev` by hand; node_modules stays in a named volume so the
   # container's Linux binaries are not overwritten by the host's.
-  #
-  # Production does not use this: the frontend deploys as a static bundle
-  # built by the host (see docs/deployment.md).
   frontend:
     image: node:24-alpine
     working_dir: /app

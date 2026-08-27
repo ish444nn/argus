@@ -22,7 +22,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     # Must run before any vector column is created. Also present in the
     # Compose postgres init script so /health is green before migrating,
-    # and needed here for environments we do not initialise (e.g. Supabase).
+    # and needed here for a database this project did not initialise itself.
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     op.create_table(

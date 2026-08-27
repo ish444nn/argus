@@ -6,13 +6,9 @@
 #   api    - FastAPI only. No torch, no xgboost, no LangGraph. It reads
 #            precomputed rows.
 #
-# **`api` is deliberately the final stage.** Docker builds the last stage when
-# no `--target` is given, and Render's Blueprint schema has no field for
-# selecting one -- `dockerTarget` is not a thing, whatever it looks like it
-# should be. With `worker` last, a Render build would have quietly shipped
-# several gigabytes of PyTorch into the web service. Ordering the stages so the
-# default is the one we want to deploy is simpler and safer than any
-# workaround, and Compose still names `worker` explicitly.
+# **`api` is deliberately the final stage**, so a bare `docker build .` with no
+# `--target` produces the light image rather than several gigabytes of PyTorch.
+# Compose names `worker` explicitly when it wants the other one.
 #
 # PyTorch comes from the CPU-only index (configured in pyproject.toml); the
 # default CUDA build is several GB and useless here.
@@ -45,8 +41,7 @@ CMD ["celery", "-A", "argus.jobs.celery_app:celery_app", "worker", "--loglevel=i
 
 
 # --- API --------------------------------------------------------------------
-# Last on purpose: this is what a bare `docker build .` produces, and therefore
-# what Render deploys.
+# Last on purpose: this is what a bare `docker build .` produces.
 
 FROM base AS api-deps
 RUN uv sync --locked --no-dev --no-install-project
@@ -55,5 +50,4 @@ FROM api-deps AS api
 COPY backend/ ./
 RUN uv sync --locked --no-dev
 EXPOSE 8000
-# Render supplies $PORT; default to 8000 for Compose and local runs.
 CMD ["sh", "-c", "uvicorn argus.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

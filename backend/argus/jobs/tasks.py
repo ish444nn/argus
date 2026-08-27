@@ -1,11 +1,11 @@
 """Celery tasks.
 
-Two real tasks, as locked in Phase 0.1:
+Two real tasks:
 
 `replay_batch`     score a time step, build its queue, gather deterministic
                    evidence.
-`investigate_case` Phase 4 -- the LangGraph investigation, narrative and
-                   deterministic confidence.
+`investigate_case` the LangGraph investigation: typology retrieval, the
+                   written narrative and the deterministic confidence.
 
 Plus `ping`, which exists to prove the broker path end to end.
 

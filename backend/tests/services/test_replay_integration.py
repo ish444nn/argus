@@ -334,7 +334,7 @@ def test_similarity_returns_results_for_queued_cases(db_session, replayed):
     """The regression test for the HNSW filtering trap.
 
     The reference pool is ~13% of the table. With default settings pgvector's
-    HNSW index post-filters and returns zero rows -- reproduced in Phase 2.
+    HNSW index post-filters and returns zero rows.
     If `hnsw.iterative_scan` is ever dropped, this goes back to empty.
     """
     tx_ids = (
@@ -458,7 +458,7 @@ def test_default_hnsw_settings_would_return_nothing(db_session, embedded):
     Runs the same filtered similarity query with `hnsw.iterative_scan` turned
     off, inside a savepoint so the setting cannot escape. Under the default
     the index post-filters and yields far fewer rows than asked for -- often
-    none. This is the failure Phase 2 hit, pinned down as an assertion.
+    none. That failure is pinned down here as an assertion.
     """
     tx_id = db_session.execute(
         text("SELECT c.tx_id FROM case_reports c ORDER BY c.risk_score DESC LIMIT 1")

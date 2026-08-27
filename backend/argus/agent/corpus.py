@@ -156,7 +156,7 @@ def ingest(
     """Load, chunk, embed and store the corpus for the active embedder.
 
     Replaces only this embedder's rows. Two embedding spaces coexist -- the
-    stub one the tests use and the Gemini one a real deployment uses -- and
+    stub one the tests use and the Gemini one a key enables -- and
     re-ingesting either leaves the other intact.
 
     That isolation is the point. Before it, running the test suite (which

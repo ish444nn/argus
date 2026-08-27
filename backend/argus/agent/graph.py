@@ -106,7 +106,7 @@ class InvestigationRunner:
         return state
 
     def collect_evidence(self, state: InvestigationState) -> InvestigationState:
-        """Load the evidence Phase 3 already persisted.
+        """Load the deterministic evidence replay already persisted.
 
         Read, not regenerated. The deterministic evidence is the system's
         record of what it found, and an investigation that recomputed it could
@@ -259,7 +259,7 @@ class InvestigationRunner:
         state.confidence = result.value
         state.confidence_version = result.version
 
-        # Only typology evidence is replaced. Phase 3's measurements stay.
+        # Only typology evidence is replaced. The measurements stay.
         self.session.execute(
             sql("""
             DELETE FROM evidence_items

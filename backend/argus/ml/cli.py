@@ -151,23 +151,6 @@ def cmd_embed(args: argparse.Namespace) -> None:
     print(f"wrote {written} embeddings to transaction_embeddings")
 
 
-def cmd_export_demo(args: argparse.Namespace) -> None:
-    """Write the seed SQL for the hosted database."""
-    from argus.db.session import SessionLocal
-    from argus.services import snapshot
-
-    with SessionLocal() as session:
-        if args.summary:
-            print(json.dumps(snapshot.summarise(session, args.min_timestep), indent=2))
-            return
-        sql = snapshot.export(session, args.min_timestep, with_embeddings=args.with_embeddings)
-
-    args.out.write_text(sql, encoding="utf-8")
-    size_mb = args.out.stat().st_size / 1024 / 1024
-    print(f"wrote {args.out} ({size_mb:.1f} MB)")
-    print('Apply with:  psql "$DATABASE_URL" -f ' + str(args.out))
-
-
 def main(argv: list[str] | None = None) -> None:
     configure_logging()
     parser = argparse.ArgumentParser(prog="argus.ml", description=__doc__)
@@ -185,22 +168,6 @@ def main(argv: list[str] | None = None) -> None:
     train_parser = sub.add_parser("train", help="train and compare models")
     train_parser.add_argument("--tracking-uri", default=None)
     train_parser.set_defaults(func=cmd_train)
-
-    export_parser = sub.add_parser("export-demo", help="write seed SQL for the hosted database")
-    export_parser.add_argument("--out", type=Path, default=Path("demo-snapshot.sql"))
-    export_parser.add_argument("--min-timestep", type=int, default=35)
-    export_parser.add_argument(
-        "--summary", action="store_true", help="report row counts without writing"
-    )
-    export_parser.add_argument(
-        "--with-embeddings",
-        action="store_true",
-        help=(
-            "include transaction_embeddings (33 MB). Only useful for a "
-            "deployment that hosts a Celery worker; the API never reads them."
-        ),
-    )
-    export_parser.set_defaults(func=cmd_export_demo)
 
     embed_parser = sub.add_parser("embed", help="write embeddings to pgvector")
     embed_parser.add_argument("--models-root", type=Path, default=None)

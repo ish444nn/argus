@@ -25,9 +25,9 @@ import { Note, Panel, Skeleton } from "./ui";
  * reproduce in a minute. Cases an analyst has already decided on survive, and
  * the result says how many did.
  *
- * Replay needs the Celery worker, which is local-only. Rather than hiding the
- * control on the deployed demo and pretending the feature does not exist, the
- * panel reads the health endpoint and disables it with a reason.
+ * Replay is a background job, so it needs the Celery worker. Rather than
+ * offering a button that fails, the panel reads the health endpoint and
+ * disables the control with a reason when no worker is listening.
  */
 
 function Row({
@@ -232,8 +232,8 @@ export function BatchReplay() {
 
             {!workerUp && !health.isPending && (
               <p className="mt-3 border-t border-[var(--line)] pt-2 text-[11px] text-[var(--text-3)]">
-                Replay needs the Celery worker, which runs locally only. The hosted
-                demo serves a precomputed snapshot.
+                No Celery worker is listening, so scoring cannot start. Bring the
+                worker up and this refreshes on its own.
               </p>
             )}
           </>

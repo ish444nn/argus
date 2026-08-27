@@ -96,7 +96,7 @@ export function Signals({ detail }: { detail: CaseDetail }) {
               </>
             ) : undefined
           }
-          title="The production risk score. This is the only signal that determines queue membership."
+          title="The primary risk score. This is the only signal that determines queue membership."
         />
 
         <Tile

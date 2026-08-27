@@ -5,7 +5,7 @@ description = "Graph-based transaction risk assessment and evidence-grounded inv
 requires-python = ">=3.12,<3.13"
 
 # Core: everything the API needs. Deliberately excludes torch / xgboost so the
-# API image stays light (see CLAUDE.md -> Docker). Celery + redis are here
+# API container stays light. Celery + redis are here
 # because the API dispatches tasks even though it never executes them.
 dependencies = [
     "fastapi>=0.115",

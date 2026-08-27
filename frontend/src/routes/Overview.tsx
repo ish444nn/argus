@@ -260,10 +260,10 @@ function BudgetControl({
             </p>
           </>
         ) : (
-          /* No worker. Rebuilding runs the scoring job, so it genuinely
-             cannot happen here -- and a disabled button with a tooltip is a
-             worse answer than saying so. The preview above is still real:
-             it re-cuts the stored scores, which are present. */
+          /* No worker listening. Rebuilding runs the scoring job, so it
+             genuinely cannot happen -- and a disabled button behind a tooltip
+             is a worse answer than saying so. The preview above is still real:
+             it re-cuts the stored scores, which are present either way. */
           <p className="text-[12px] text-[var(--text-3)]">
             Previewing only.{" "}
             {applied !== null && (
@@ -272,7 +272,7 @@ function BudgetControl({
                 <span className="num text-[var(--text-2)]">{budgetLabel(applied)}</span>.{" "}
               </>
             )}
-            Rebuilding it needs the scoring worker, which this deployment does not run.
+            Rebuilding it needs the Celery worker, which is not running.
           </p>
         )}
         {error && (

@@ -1,8 +1,8 @@
 /**
  * Thin typed fetch wrapper.
  *
- * Types are hand-written for now. From Phase 5 they are generated from the
- * API's OpenAPI schema so the client cannot drift from the server.
+ * Types are hand-written and mirror the API's response models. The API
+ * publishes an OpenAPI schema at /openapi.json if they ever need generating.
  */
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";

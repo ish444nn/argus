@@ -88,7 +88,7 @@ def test_pattern_tags_come_from_the_known_vocabulary():
 def test_every_evidence_kind_can_retrieve_something():
     """The mapping is only useful if each pattern has a note behind it.
 
-    Phase 3 measured that the queue is almost all degree-1 transactions, so
+    The queue is almost all degree-1 transactions, so
     `behavioural_similarity` and `model_risk_scoring` carry most cases. If
     either had no corpus coverage, most reports would cite nothing.
     """

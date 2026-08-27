@@ -51,6 +51,6 @@ unrelated typology cannot be returned for a matched signal.
 | `placement`, `integration`, `virtual_assets` | general context |
 
 `behavioural_similarity` and `model_risk_scoring` matter more than they look:
-Phase 3 measured that the queue is almost entirely degree-1 transactions, so
-the degree-based heuristics rarely fire and those two tags are what most cases
-actually retrieve on.
+the queue is almost entirely degree-1 transactions, so the degree-based
+heuristics rarely fire and those two tags are what most cases actually
+retrieve on.

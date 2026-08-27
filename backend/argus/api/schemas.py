@@ -6,9 +6,7 @@ from pydantic import BaseModel
 
 
 class DependencyStatus(BaseModel):
-    #: `disabled` means the dependency was deliberately left out of this
-    #: deployment, which is not a fault and does not degrade the response.
-    status: Literal["ok", "error", "disabled"]
+    status: Literal["ok", "error"]
     detail: str | None = None
 
 
@@ -67,8 +65,8 @@ class EvidenceItemOut(BaseModel):
     summary: str
     strength: float
     weight: float
-    # strength x weight -- what this item will contribute to the deterministic
-    # confidence score in Phase 4.
+    # strength x weight -- what this item contributes to the deterministic
+    # confidence score.
     contribution: float
     neighbour_tx_id: int | None
     neighbour_timestep: int | None

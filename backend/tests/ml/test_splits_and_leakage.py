@@ -175,7 +175,7 @@ def test_poisoning_future_features_cannot_change_a_fitted_baseline(synthetic):
 def test_reference_pool_for_similarity_excludes_non_training_timesteps(synthetic):
     """The embedding reference pool is train-range labelled nodes only.
 
-    Phase 4 searches this pool for structurally similar transactions. Letting
+    The investigation searches this pool for structurally similar transactions. Letting
     a validation or test node in would mean citing an answer we are not
     supposed to have yet.
     """

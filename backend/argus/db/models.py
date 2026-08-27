@@ -1,7 +1,8 @@
 """ORM models for the full Argus schema.
 
-Created up front (Phase 1) because the schema is already specified in the PRD
-and Phase 0.1; building it piecemeal would mean churning migrations every phase.
+Defined up front rather than grown piecemeal: the schema follows from the
+product specification, and building it incrementally would mean churning
+migrations for every feature.
 Tables stay deliberately thin -- no columns are added speculatively.
 """
 
@@ -60,7 +61,7 @@ class Transaction(Base):
     tx_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     timestep: Mapped[int] = mapped_column(SmallInteger, nullable=False, index=True)
     label: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
-    # The 166 raw Elliptic features. Nullable because the hosted demo snapshot
+    # The 166 raw Elliptic features. Nullable because only the worker reads
     # ships without them -- only the worker needs feature vectors.
     features: Mapped[list[float] | None] = mapped_column(ARRAY(REAL), nullable=True)
     in_degree: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

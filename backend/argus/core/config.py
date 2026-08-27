@@ -23,12 +23,12 @@ DB_DRIVER = "postgresql+psycopg"
 def normalise_database_url(url: str) -> str:
     """Bind a PostgreSQL URL to the driver that is actually installed.
 
-    Every managed Postgres hands out a connection string in one of two shapes:
-    `postgresql://...` (Supabase, Render, RDS) or the older `postgres://`
-    (Heroku). SQLAlchemy maps both to psycopg2, so pasting either one into
-    `DATABASE_URL` produced `ModuleNotFoundError: No module named 'psycopg2'`
-    at import time -- a failure with no relationship to what was actually
-    wrong, in a deployment that had been configured exactly as documented.
+    SQLAlchemy chooses a driver from the URL scheme, and a bare
+    `postgresql://` (or the older `postgres://`) selects psycopg2, which is
+    not installed here. Writing a URL without the `+psycopg` suffix would
+    otherwise fail at import with `ModuleNotFoundError: No module named
+    'psycopg2'` -- an error that names a package the project does not use and
+    points nowhere near the mistake.
 
     Rewriting the scheme here rather than in `create_engine` means Alembic,
     the worker, the API and every test read the same corrected URL. A URL that
@@ -50,14 +50,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_env: Literal["local", "test", "production"] = "local"
+    app_env: Literal["local", "test"] = "local"
     log_level: str = "INFO"
 
-    # Origins allowed to call the API from a browser. The development default
-    # is the Vite dev server; a deployment must set this to its own frontend
-    # origin. `_check_production_safety` refuses to start in production if it
-    # is still the development value, because a silently wrong CORS list looks
-    # like a broken frontend rather than a misconfiguration.
+    # Origins allowed to call the API from a browser. The Vite dev server
+    # proxies `/api` in normal use, so this matters only when the frontend is
+    # served from a different origin than the API.
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # Host-side defaults use non-standard ports: the Compose services are
@@ -65,24 +63,18 @@ class Settings(BaseSettings):
     # PostgreSQL or Redis. Inside Compose these are overridden with the
     # service hostnames and standard ports.
     database_url: str = "postgresql+psycopg://argus:argus@localhost:5433/argus"
-    # Set this to an empty string to say "this deployment has no job broker".
-    # That is the hosted configuration: Render's free tier covers a web service
-    # and a static site but neither Redis nor a background worker, so the
-    # deployed API serves what a local worker already wrote and dispatches
-    # nothing. Declaring the absence is different from pointing production at
-    # `localhost`, which is still refused below -- one is an architecture, the
-    # other is a mistake that fails somewhere unhelpful.
     redis_url: str = "redis://localhost:6380/0"
 
     # Celery uses Redis db 0 as broker and db 1 as result backend. The result
     # backend exists only for the development ping task -- real batch progress
-    # lives in the `batch_runs` table (see CLAUDE.md).
+    # lives in the `batch_runs` table.
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
 
     # Fraction of each batch that becomes an alert. Applied by ranking the
-    # batch, never as a stored probability cutoff -- Phase 2 measured a frozen
-    # threshold alerting 0.12% of the test range instead of 1%.
+    # batch and taking the top slice, never as a stored probability cutoff:
+    # score distributions shift between time steps, and a frozen cutoff
+    # collapses recall on the later ones.
     alert_budget: float = Field(default=0.01, gt=0, le=1)
     # Time steps the demo replay is allowed to touch. Earlier ones are training
     # data; scoring them would be meaningless.
@@ -104,51 +96,10 @@ class Settings(BaseSettings):
     def allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
-    @property
-    def is_production(self) -> bool:
-        return self.app_env == "production"
-
-    @property
-    def has_broker(self) -> bool:
-        """Is a job broker configured at all?
-
-        False means batch replay and investigation cannot be started from this
-        process. Callers report that plainly rather than trying to connect.
-        """
-        return bool(self.redis_url.strip())
-
     @model_validator(mode="after")
     def _check_llm_credentials(self) -> "Settings":
         if self.llm_provider == "gemini" and not self.gemini_api_key:
             raise ValueError("LLM_PROVIDER=gemini requires GEMINI_API_KEY to be set")
-        return self
-
-    @model_validator(mode="after")
-    def _check_production_safety(self) -> "Settings":
-        """Refuse to start in production on development defaults.
-
-        Each of these fails quietly rather than loudly if it slips through: a
-        localhost database URL times out somewhere unhelpful, and a localhost
-        CORS list makes the deployed frontend look broken. Failing at startup
-        with the variable name is far cheaper to diagnose.
-        """
-        if not self.is_production:
-            return self
-
-        problems: list[str] = []
-        if "localhost" in self.database_url or "127.0.0.1" in self.database_url:
-            problems.append("DATABASE_URL still points at localhost")
-        # An empty REDIS_URL is a deliberate statement -- see the field above.
-        # A localhost one is not, and is still refused.
-        if self.has_broker and ("localhost" in self.redis_url or "127.0.0.1" in self.redis_url):
-            problems.append(
-                "REDIS_URL still points at localhost (set it to a reachable "
-                "broker, or to an empty string if this deployment has no worker)"
-            )
-        if any("localhost" in origin for origin in self.allowed_origins):
-            problems.append("CORS_ORIGINS still contains localhost")
-        if problems:
-            raise ValueError("APP_ENV=production but: " + "; ".join(problems))
         return self
 
     @property

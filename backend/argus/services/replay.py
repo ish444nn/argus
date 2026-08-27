@@ -2,7 +2,7 @@
 
 One batch is one Elliptic time step. Replaying it:
 
-1. loads the production scorer from its manifest;
+1. loads the primary scorer from its manifest;
 2. scores every transaction in the batch;
 3. ranks them and takes exactly the alert budget;
 4. writes scores, the batch run, and one case per alert;
@@ -20,7 +20,7 @@ this time -- possible if the model changes. Those are deleted, unless an
 analyst has already reviewed them, in which case the case stays and is logged.
 Silently discarding reviewed work would be worse than a slightly stale queue.
 
-The narrative and confidence layers are Phase 4. Everything here is
+The narrative layer sits on top of this. Everything here is
 deterministic: the same batch and the same model produce the same rows.
 """
 
@@ -220,8 +220,8 @@ def _sync_queue(
 def gather_evidence(session: Session, case: CaseReport, timestep: int) -> int:
     """Run every deterministic tool over one case and persist the result.
 
-    Deliberately not an LLM step. Phase 4 adds typology retrieval and a
-    narrative on top of exactly these drafts.
+    Deliberately not an LLM step. The investigation adds typology retrieval
+    and a narrative on top of exactly these drafts.
     """
     drafts: list[EvidenceDraft] = []
     drafts.extend(graph_tools.structural_heuristics(session, case.tx_id))

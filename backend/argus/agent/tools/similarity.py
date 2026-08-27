@@ -19,7 +19,7 @@ The HNSW filtering trap
 pgvector's HNSW index post-filters: it walks the graph for approximate
 neighbours first, then applies `WHERE`. The reference pool is ~13% of the
 table, so a default query walks 40 candidates, discards almost all of them,
-and returns **zero rows** -- reproduced during Phase 2 against real data, not
+and returns **zero rows** -- reproduced against real data, not
 hypothetical.
 
 `hnsw.iterative_scan = relaxed_order` (pgvector 0.8+) makes the scan continue

@@ -65,20 +65,10 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
-          # The job's post step used to run `uv cache prune --ci`, which takes
-          # a lock on the uv cache. Reproduced locally: with any uv process
-          # still alive, prune prints "Cache is currently in-use, waiting for
-          # other uv processes to finish" and blocks. In CI the process that
-          # held it was the background Celery worker, started through
-          # `uv run`, which lives for the whole job -- so prune waited out its
-          # timeout and exited 2, failing a job whose tests had all passed.
-          # The run's own timings show it: the step took exactly 5m00s.
-          #
-          # Three things fix that, and all three are applied. The worker no
-          # longer runs under uv (below), it is killed before the post steps
-          # (below), and pruning is off. v9.0.0 already defaults this to false
-          # and runs on Node 24; it is named anyway so a future default cannot
-          # quietly turn a five-minute lock wait back on.
+          # Pruning takes a lock on the uv cache and blocks while any uv
+          # process is alive, which in this job means the background worker
+          # below. v9.0.0 defaults this to false; naming it means a future
+          # default cannot quietly reintroduce the stall.
           prune-cache: false
 
       - name: Install dependencies
@@ -116,7 +106,7 @@ jobs:
       - name: Check migrations match the models
         working-directory: backend
         # Catches a model edited without a migration, which otherwise only
-        # surfaces on the next deployment.
+        # surfaces when someone next runs against a fresh database.
         run: uv run alembic check
 
       - name: Start a Celery worker
@@ -134,10 +124,11 @@ jobs:
         # Background processes survive to later steps in the same job, so the
         # worker is still listening when pytest runs.
         #
-        # Launched from the venv directly rather than through `uv run`: see
-        # the note on the install step for what a long-lived `uv run` does to
-        # the post-job cache handling. `.venv/bin/celery` is a plain console
-        # script, so no uv process outlives this step.
+        # Launched from the venv directly rather than through `uv run`: a
+        # long-lived `uv run` keeps a uv process alive for the child's whole
+        # lifetime, holding the cache lock through the job's cleanup steps.
+        # `.venv/bin/celery` is a plain console script, so nothing outlives
+        # this step.
         run: |
           .venv/bin/celery -A argus.jobs.celery_app:celery_app worker \
             --loglevel=info --concurrency=1 > celery.log 2>&1 &
@@ -171,7 +162,7 @@ jobs:
 
       - name: Stop the Celery worker
         # Always, and before any action's post step runs, so nothing this job
-        # started is still holding a file lock during cleanup.
+        # started is still holding a lock during cleanup.
         if: always()
         working-directory: backend
         run: |

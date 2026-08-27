@@ -11,9 +11,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
-    // Dev-only proxy so the browser talks to one origin and CORS never enters
-    // the picture during development. In production VITE_API_BASE_URL points
-    // at the deployed API and CORS_ORIGINS on the API allows it.
+    // Proxy so the browser talks to a single origin and CORS never enters the
+    // picture. Set VITE_API_BASE_URL to bypass it and call the API directly.
     proxy: {
       "/health": API_TARGET,
       "/api": API_TARGET,

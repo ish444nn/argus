@@ -6,7 +6,7 @@ where COPY takes seconds.
 
 Stored per transaction: the id, its time step, its label, its 165 model
 features, and its directed in/out degree. The degrees are derived from
-`edges`, but the structural heuristics in Phase 4 read them for every queued
+`edges`, but the structural heuristics read them for every queued
 transaction, and recomputing a degree from the edge table on each read is
 wasted work -- this is the one denormalisation in the schema.
 

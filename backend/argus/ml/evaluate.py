@@ -25,7 +25,7 @@ questions and the gap between them is itself a finding:
              than another and made the comparison meaningless.
 
 `at_fixed_threshold`  the numeric threshold chosen on validation, applied
-             verbatim. This is what a deployed model does if it is never
+             verbatim. This is what a scorer does if it is never
              recalibrated, and on Elliptic it degrades badly: score
              distributions shift in the later time steps, so a frozen
              threshold alerts far below budget and recall collapses.
@@ -51,7 +51,7 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 
 from argus.db.enums import Label
 
-# Pre-registered before any test-set evaluation. See docs/modeling.md.
+# Pre-registered before any test-set evaluation. See docs/Model Report.md.
 ALERT_BUDGET = 0.01
 PROMOTION_MARGIN = 0.02  # absolute recall points GraphSAGE must add to be promoted
 

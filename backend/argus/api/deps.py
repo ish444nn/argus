@@ -28,18 +28,6 @@ def dispatch(task_name: str, *args: object) -> str:
 
     from argus.jobs.celery_app import celery_app
 
-    if not get_settings().has_broker:
-        # Not a fault: this deployment was configured without a broker, so
-        # there is nothing to reach and nothing to wait for.
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "This deployment has no job queue, so batches and "
-                "investigations cannot be started here. It serves results "
-                "produced by a local worker."
-            ),
-        )
-
     try:
         # Prove the broker is reachable before publishing. Celery's transport
         # options do not bound the publish path, so `send_task` alone still

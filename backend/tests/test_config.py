@@ -43,49 +43,13 @@ def test_api_key_is_not_exposed_by_repr():
     assert "super-secret" not in repr(settings)
 
 
-def test_production_accepts_an_empty_redis_url_as_a_deliberate_absence():
-    """The hosted deployment has no broker, and says so.
-
-    Render's free tier covers a web service and a static site but neither
-    Redis nor a background worker, so the deployed API dispatches nothing. An
-    empty REDIS_URL is how that architecture is declared; the alternative --
-    the placeholder `redis://localhost:6379/0` that docs/deployment.md used to
-    recommend -- points a container at itself and is refused below.
-    """
-    settings = Settings(
-        _env_file=None,
-        app_env="production",
-        database_url="postgresql+psycopg://u:p@db.example.com:5432/argus",
-        redis_url="",
-        cors_origins="https://argus-web.example.com",
-    )
-
-    assert settings.has_broker is False
-    assert settings.broker_url == ""
-
-
-def test_production_still_refuses_a_localhost_redis_url():
-    with pytest.raises(ValidationError, match="REDIS_URL"):
-        Settings(
-            _env_file=None,
-            app_env="production",
-            database_url="postgresql+psycopg://u:p@db.example.com:5432/argus",
-            redis_url="redis://localhost:6379/0",
-            cors_origins="https://argus-web.example.com",
-        )
-
-
-def test_a_configured_redis_url_means_there_is_a_broker():
-    assert Settings(_env_file=None, redis_url="redis://localhost:6380/0").has_broker
-
-
 @pytest.mark.parametrize(
     ("supplied", "expected"),
     [
-        # What Supabase, Render and RDS hand you.
+        # The shape a managed PostgreSQL connection string usually takes.
         (
-            "postgresql://postgres:pw@db.abc.supabase.co:5432/postgres",
-            "postgresql+psycopg://postgres:pw@db.abc.supabase.co:5432/postgres",
+            "postgresql://postgres:pw@db.example.com:5432/postgres",
+            "postgresql+psycopg://postgres:pw@db.example.com:5432/postgres",
         ),
         # The older Heroku-style scheme.
         ("postgres://u:p@h:5432/d", "postgresql+psycopg://u:p@h:5432/d"),
@@ -102,9 +66,9 @@ def test_a_database_url_is_bound_to_the_driver_that_is_installed(supplied, expec
     """A bare `postgresql://` URL means psycopg2 to SQLAlchemy, and this
     project installs psycopg 3.
 
-    Pasting a managed database's own connection string into DATABASE_URL --
-    exactly what the deployment guide asks for -- therefore crashed the
-    container at import time with `No module named 'psycopg2'`.
+    Writing a URL without the `+psycopg` suffix would therefore fail at
+    import with `No module named 'psycopg2'` -- an error naming a package the
+    project does not install.
     """
     assert Settings(_env_file=None, database_url=supplied).database_url == expected
 

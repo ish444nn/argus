@@ -1,7 +1,7 @@
 """Development-only task endpoints.
 
 These exist to verify the FastAPI -> Redis -> worker chain. Real batch control
-endpoints arrive in Phase 3 and will report progress from the `batch_runs`
+endpoints report progress from the `batch_runs`
 table rather than from Celery's result backend.
 """
 

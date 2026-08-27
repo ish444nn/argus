@@ -37,7 +37,7 @@ MAX_COSINE_DISTANCE = 1.0
 
 # Which corpus pattern each kind of evidence justifies retrieving.
 #
-# The two entries at the bottom carry most of the traffic. Phase 3 measured
+# The two entries at the bottom carry most of the traffic. Measured on the
 # that the queue is almost entirely degree-1 transactions, so the degree-based
 # heuristics rarely fire; keying retrieval only off heuristics would leave most
 # cases with no typology reference at all.
@@ -128,7 +128,7 @@ def retrieve(
             WHERE r.patterns && CAST(:patterns AS text[])
               AND r.embedding IS NOT NULL
               -- Select the active embedding space. Several may be stored (the
-              -- stub one the tests use, the real one a deployment uses); a
+              -- the stub one the tests use, the real one a key enables); a
               -- query must only ever compare against vectors from its own.
               AND r.embedding_model = :embedding_model
         )

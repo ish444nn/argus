@@ -1,6 +1,6 @@
-"""Loading the production scorer and scoring a batch.
+"""Loading the primary scorer and scoring a batch.
 
-Phase 2 settled which model that is: `xgb-all166`, because GraphSAGE missed
+Evaluation settled which model that is: `xgb-all166`, because GraphSAGE missed
 the pre-registered promotion bar. Nothing here knows that, though -- it reads
 the model named by `PRIMARY_MODEL`, loads its manifest, and applies the scaler
 the manifest carries. Promoting a different model is a one-line change plus a
@@ -106,7 +106,7 @@ def score_batch(model: LoadedModel, raw_features: np.ndarray) -> np.ndarray:
 def select_alerts(scores: np.ndarray, budget: float) -> np.ndarray:
     """Indices of the batch's alerts, highest score first.
 
-    Selects exactly ceil(budget x n) transactions by rank. Phase 2 established
+    Selects exactly ceil(budget x n) transactions by rank. Evaluation established
     why this cannot be a stored probability threshold: score distributions
     shift across later time steps, and a threshold frozen on validation alerted
     0.12% of the test range instead of 1%, collapsing recall from 0.374 to

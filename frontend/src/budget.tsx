@@ -16,14 +16,14 @@ import {
  * distribution shifts hard in the later time steps and a frozen cutoff
  * collapses recall.
  *
- * 1% is canonical: every metric in `docs/modeling.md` is measured at it,
+ * 1% is canonical: every metric in the model report is measured at it,
  * and it is the default here and in the backend. The other options exist so
  * the cost of that choice can be seen rather than argued about.
  *
- * The chosen value is application state, not component state: it survives
- * navigating to a case and back, and a reload. It is a per-analyst preference
- * about how to read the numbers, so it lives in this browser rather than in
- * the database — moving the control still writes nothing anywhere.
+ * The chosen value survives navigating to a case and back, and a reload.
+ * Moving the control previews a budget against the stored scores and writes
+ * nothing; applying it re-runs the selection and rebuilds the queue, which is
+ * a background job with a duration.
  */
 
 export const BUDGETS = [0.005, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05];

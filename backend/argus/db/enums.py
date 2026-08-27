@@ -2,7 +2,7 @@
 
 These are stored as VARCHAR with a CHECK constraint rather than as native
 PostgreSQL ENUM types. Adding a value later (evidence kinds will grow in
-Phase 4) is then a simple constraint replacement instead of an ALTER TYPE
+is then a simple constraint replacement instead of an ALTER TYPE
 dance, and the allowed values stay defined in one place in Python.
 """
 

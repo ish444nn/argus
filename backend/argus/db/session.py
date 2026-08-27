@@ -13,8 +13,8 @@ from argus.core.config import get_settings
 # HNSW index post-filters: it collects `ef_search` approximate neighbours and
 # only then applies the WHERE clause. Structural similarity filters to the
 # reference pool (~13% of rows), so the default settings return *zero rows*
-# for a query that has perfectly good answers -- reproduced in Phase 2 and
-# again in Phase 3's EXPLAIN output.
+# for a query that has perfectly good answers -- confirmed against real data
+# and in the query planner's own EXPLAIN output.
 #
 # Setting it here rather than per-query means it cannot be forgotten, and it
 # does not depend on transaction scope the way `SET LOCAL` does.

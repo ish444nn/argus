@@ -86,29 +86,6 @@ def test_a_broken_database_does_not_produce_two_identical_errors(client, overrid
     assert body["dependencies"]["pgvector"]["detail"] == "postgres unreachable"
 
 
-def test_a_deployment_without_a_broker_is_not_degraded(client, override_session):
-    """No broker configured is an architecture, not a fault.
-
-    The hosted deployment runs the read side only -- batch replay and
-    investigation happen locally and their results are seeded in. Reporting
-    that as `error` would have made a correctly configured production API look
-    permanently broken on its own health page.
-    """
-    from argus.api.main import app
-    from argus.core.config import Settings, get_settings
-
-    override_session(_FakeSession())
-    app.dependency_overrides[get_settings] = lambda: Settings(_env_file=None, redis_url="")
-    try:
-        body = client.get("/health").json()
-    finally:
-        app.dependency_overrides.pop(get_settings, None)
-
-    assert body["dependencies"]["redis"]["status"] == "disabled"
-    assert body["dependencies"]["worker"]["status"] == "disabled"
-    assert body["status"] == "ok"
-
-
 def test_health_returns_200_even_when_degraded(client, override_session):
     """The dashboard renders the breakdown, so the body must always arrive."""
     override_session(_FakeSession(fail=True))
