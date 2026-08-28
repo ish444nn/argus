@@ -75,7 +75,8 @@ distinguish.
    *k* is `ceil(batch_size × alert_budget)`.
 3. Each alert becomes a case, and every deterministic evidence tool runs
    against it.
-4. Evidence confidence is computed from what those tools found, and stored.
+4. Evidence confidence is derived from the observed evidence those tools
+   produced, and stored.
 
 Replay is idempotent: re-running a batch restates its rows rather than
 appending. Cases that fall out of the queue are deleted, **except** those an
@@ -172,8 +173,8 @@ tile is visually accented.
 
 ### 6.4 Deterministic evidence
 
-Five tools run against every queued case during replay, before any language
-model is involved:
+Deterministic tools run against every queued case during replay, before any
+language model is involved:
 
 - **Neighbourhood profile** — degrees, distinct counterparties, same-batch
   neighbours, chain length.
@@ -190,8 +191,19 @@ model is involved:
   analyst-confirmed cases. Because similarity in representation space is not
   adjacency, this is the only mechanism that reaches across time steps into
   labelled history.
-- **Graph model corroboration** — the GraphSAGE probability, recorded as a
-  signal rather than a finding.
+
+The neighbourhood profile is context displayed on the case. The other three
+tools, together with the **typology sources** an investigation retrieves,
+produce the five kinds of *observed evidence* — `heuristic`,
+`flagged_neighbour`, `confirmed_neighbour`, `structural_similarity` and
+`typology_reference`. They are what the case page lists under *Observed
+evidence* and what every evidence count in the product means.
+
+The graph model's **second opinion** is stored on the case beside them, with
+the same provenance, and it steers typology retrieval. It is **not** one of the
+observed evidence kinds: it is a second model's opinion of the transaction
+rather than a finding about it, so it is reported as one of the three signals
+and never listed as evidence.
 
 Each evidence item records its provenance as a foreign key to the row it came
 from, never as free text, so every claim can be followed back to what produced
@@ -199,16 +211,18 @@ it.
 
 ### 6.5 Evidence confidence
 
-- Computed deterministically from the evidence on a case, never self-reported
-  by a language model.
+- Derived deterministically from the observed evidence on a case by a fixed,
+  versioned rule. It is not an ML score and is never self-reported by a
+  language model.
 - Combined per kind by noisy-OR and capped at that kind's weight, so
   corroboration across *different* kinds beats repetition of one. Five near
   identical similarity matches are one observation held more firmly, not five
   findings.
-- `graph_model_corroboration` weighs **zero**: a model's own score folded into
-  "how much evidence is there" would let a case with no evidence score highly
-  because a second model agreed. `typology_reference` weighs zero too — a
-  retrieved passage explains a signal, it is not one.
+- The second opinion contributes **nothing**. It is not observed evidence, and
+  its stored row carries weight zero: a model's own score folded into "how much
+  evidence is there" would let a case with no evidence score highly because a
+  second model agreed. `typology_reference` weighs zero too — a retrieved
+  passage explains a signal, it is not one.
 - Computed during replay, so a case carries a confidence before any
   investigation runs. Re-investigating does not move it.
 - The weighting is versioned with the reports it produced.
@@ -221,10 +235,10 @@ it.
 - Retrieval filters candidates by the pattern tags a case actually raised
   before ranking by cosine similarity, so an unrelated typology cannot be
   returned for a matched pattern.
-- Retrieval is keyed off structural similarity and graph corroboration as well
-  as fired heuristics. Keying it off heuristics alone would leave the corpus
-  unused, because the queue is overwhelmingly low-degree transactions on which
-  those heuristics do not fire.
+- Retrieval is keyed off structural similarity and the graph model's second
+  opinion as well as fired heuristics. Keying it off heuristics alone would
+  leave the corpus unused, because the queue is overwhelmingly low-degree
+  transactions on which those heuristics do not fire.
 - Corpus and query embeddings must come from the same model; the store is keyed
   by embedding model and retrieval refuses a mismatch.
 
@@ -378,9 +392,11 @@ These are properties of the finished system, stated plainly.
 - **The graph model lost the scoring comparison** and is used only in the
   investigation layer. A baseline win was a permitted, pre-registered outcome.
 - **No authentication.** Decisions are attributed to a seeded analyst account.
-- **Free-tier model limits.** The default provider allows 20 generation
-  requests per day. Past that, investigations fall back to the rule-built
-  narrative and record the error in the case's metadata — visible, not silent.
+- **Language-model quota.** The default provider is a stub that renders the
+  rule-built narrative, so the system runs with no API key. With a real
+  provider configured, a free-tier quota is finite: once it is exhausted,
+  investigations fall back to the same rule-built narrative and record the
+  provider error in the case's metadata — visible, not silent.
 - **Recall is capped by the budget.** At 1%, the test range's 676 alert slots
   against 1,083 labelled illicit transactions cap achievable recall at 0.62.
   Reported recall should be read against that ceiling.

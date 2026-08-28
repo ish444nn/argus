@@ -32,12 +32,14 @@ Elliptic dataset  ─▶  score a batch  ─▶  rank, take the top k%  ─▶  
    top *k* — where *k* is the alert budget, not a probability cutoff. Score
    distributions shift between time steps; a frozen threshold collapses recall
    from 0.374 to 0.063.
-2. **Evidence** runs five deterministic tools over every alert: neighbourhood
-   profile, structural heuristics, flagged and confirmed counterparties,
-   embedding-space similarity to historically labelled transactions, and a
-   second opinion from the graph model. No language model is involved.
-3. **Confidence** is computed from that evidence by a fixed rule, before any
-   investigation runs.
+2. **Evidence** runs deterministic tools over every alert: the neighbourhood
+   profile, structural heuristics, flagged and confirmed counterparties, and
+   embedding-space similarity to historically labelled transactions. The graph
+   model's second opinion is recorded beside them as a signal, not as an
+   observed finding. No language model is involved.
+3. **Confidence** is derived from the observed evidence by a fixed rule, before
+   any investigation runs. It is not a model score, and the second opinion does
+   not feed it.
 4. **Investigation** retrieves matching AML typology passages, calls a language
    model **once** to write the assessment, and **rejects the output** if it
    cites anything not in the evidence set — falling back to a rule-built
@@ -49,7 +51,9 @@ Elliptic dataset  ─▶  score a batch  ─▶  rank, take the top k%  ─▶  
 
 - **Three signals, one decider.** The risk score (XGBoost) decides queue
   membership. The graph model's second opinion and the evidence confidence
-  decide nothing, and the interface says so on the face of each tile.
+  decide nothing, and the interface says so on the face of each tile. The
+  second opinion is not one of the five observed evidence kinds and carries no
+  weight in the confidence.
 - **Every claim is traceable.** Evidence items carry a foreign key to the row
   that produced them, never free text. A narrative citing an id that does not
   exist is rejected before it is stored.
@@ -57,8 +61,8 @@ Elliptic dataset  ─▶  score a batch  ─▶  rank, take the top k%  ─▶  
   corpus of public AML reference material and cited; the model never explains a
   pattern in its own words.
 - **A real alert budget.** Changing it re-runs the selection and rebuilds the
-  queue — 1% → 154 cases, 2% → 306, 3% → 458 on the bundled test range. It is
-  application state, not a slider that moves a label.
+  queue: every stored batch is replayed at the new rate and the case count
+  scales with it. It is application state, not a slider that moves a label.
 - **Honest evaluation.** GraphSAGE was compared to a tuned tabular baseline
   against a promotion rule fixed before the test split was read. It lost by
   31.9 points of recall, and XGBoost is the primary scorer. See
@@ -74,7 +78,7 @@ Elliptic dataset  ─▶  score a batch  ─▶  rank, take the top k%  ─▶  
 | API | FastAPI, Pydantic v2 |
 | Database | PostgreSQL 16 + pgvector, SQLAlchemy 2.0, Alembic |
 | Jobs | Celery + Redis — one worker, one queue, two tasks |
-| Primary scorer | XGBoost (166 features) |
+| Risk score (primary scorer) | XGBoost `xgb-all166` (165 feature columns) |
 | Graph model | GraphSAGE (PyTorch + PyTorch Geometric) → 64-d embeddings |
 | Vector search | pgvector, two spaces: typology text (768-d), transaction structure (64-d) |
 | Agent | LangGraph, deterministic nodes, one LLM call at the end |

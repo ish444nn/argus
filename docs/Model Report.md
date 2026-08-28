@@ -192,9 +192,10 @@ Three things worth noting:
 - The frozen-threshold column is the interesting failure. Recall collapses
   from 0.374 to 0.063 when the validation threshold is applied without
   recalibration, because score distributions shift sharply in the later time
-  steps (Elliptic's "dark market shutdown" around step 43). **A scorer must recalibrate its threshold per batch**, which is what the replay
-  job does: it ranks each batch and takes the top *k*, and treats the stored
-  threshold as a reference value only.
+  steps (Elliptic's "dark market shutdown" around step 43). **A scorer must
+  recalibrate its threshold per batch**, which is what the replay job does: it
+  ranks each batch and takes the top *k*, and treats the stored threshold as a
+  reference value only.
 
 ## Model roles
 
@@ -213,8 +214,15 @@ sees the same way. Because embedding similarity is not graph adjacency, it
 reaches **across time steps** into labelled history — something neither the
 graph nor XGBoost can do.
 
-**B. A secondary graph risk score**, quoted in a case report as a second
-opinion from a neighbourhood-aware model. It never gates the queue.
+**B. A second opinion** — the graph model's own probability for the
+transaction, quoted in a case report beside the risk score. Its role is
+deliberately bounded: it never gates the queue, it is not one of the five
+observed evidence kinds, and its raw score contributes nothing to the
+deterministic evidence confidence. Folding a model's opinion into a measure of
+how much evidence exists would let a case with no evidence score highly because
+a second model agreed. Structural similarity (A) is the opposite case and does
+count, because it is a measurement made *using* the embeddings rather than the
+model's verdict on the transaction.
 
 ### Architecture
 
